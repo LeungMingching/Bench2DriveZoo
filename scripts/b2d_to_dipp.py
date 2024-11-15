@@ -125,8 +125,6 @@ def extract_agents(anno, MAX_DISTANCE=100, FILTER_Z_SHRESHOLD=10):
             continue
         if abs(npc['location'][2] - ego_box['location'][2]) > FILTER_Z_SHRESHOLD:
             continue
-        
-        id = npc["id"]
 
         # pose in global
         location_global = npc["center"]
@@ -148,40 +146,51 @@ def extract_agents(anno, MAX_DISTANCE=100, FILTER_Z_SHRESHOLD=10):
         velocity_local = world2ego.apply(velocity_global).tolist()
         acceleration_local = [0.0, 0.0, 0.0]
 
-        # type, state, dimension
+        # type
         CLASS_TO_TYPE = {
             "vehicle": 1,
             "traffic_light": 14,
             "walker": 8
         }
         type = CLASS_TO_TYPE[npc["class"]]
-        print(npc["class"], npc["state"])
 
-        # agents[id] = {
-        #     "id": id,
-        #     "pose": {
-        #         "ego": {
-        #             "position": [x, y, z],
-        #             "heading": (float),
-        #             "velocity": [vx, vy, vz],
-        #             "acceleration": [ax, ay, az]
-        #         },
-        #         "odom": {
-        #             "position": [x, y, z],
-        #             "heading": (float),
-        #             "velocity": [vx, vy, vz],
-        #             "acceleration": [ax, ay, az]
-        #         }
-        #     },
-        #     "type": (int),
-        #     "is_movable": (bool),
-        #     "dimension": {
-        #         "corner_points": [[x, y], [x, y], ...], # [left_front, right_front, right_back, left_back]
-        #         "width": (float), # [m]
-        #         "height": (float), # [m]
-        #         "length": (float) # [m]
-        #     }
-        # }
+        # is_movable
+        if npc["class"] == "vehicle":
+            is_movable = npc["state"] == "dynamic"
+        if npc["class"] == "traffic_light":
+            is_movable = False
+        if npc["class"] == "walker":
+            is_movable = True
+        
+        # dimension
+        length, width, height = np.array(npc["extent"]) * 2
+
+        # fill
+        agents[npc["id"]] = {
+            "id": npc["id"],
+            "pose": {
+                "ego": {
+                    "position": location_local,
+                    "heading": yaw_local,
+                    "velocity": velocity_local,
+                    "acceleration": acceleration_local # all 0, no valid value
+                },
+                "odom": {
+                    "position": location_global,
+                    "heading": yaw_global,
+                    "velocity": velocity_global,
+                    "acceleration": acceleration_global
+                }
+            },
+            "type": type,
+            "is_movable": is_movable,
+            "dimension": {
+                "corner_points": [], # empty, calculate if needed
+                "width": width,
+                "height": height,
+                "length": length
+            }
+        }
 
     return agents
 
@@ -201,16 +210,16 @@ def extract_from_one_tar_file(tar_file: str):
     # Anno
     anno_file_list = glob(os.path.join(folder, scene, "anno", "*.json.gz"))
     anno_file_list.sort()
-    for idx_anno, anno_file in enumerate(anno_file_list):
-    # for idx_anno, anno_file in enumerate(anno_file_list[0:1]):
+    # for idx_anno, anno_file in enumerate(anno_file_list):
+    for idx_anno, anno_file in enumerate(anno_file_list[12:13]):
         with gzip.open(anno_file, 'rb') as f:
             anno = json.load(f)
 
         frame = form_frame_template(19980518.0, idx_anno, len(anno_file_list))
         frame["can_bus"] = extract_can_bus(anno)
-        extract_agents(anno)
+        frame["agents"] = extract_agents(anno)
 
-        # print(frame)
+        pprint(frame)
 
     return
 
