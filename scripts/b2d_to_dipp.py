@@ -4,6 +4,7 @@ import gzip
 import json
 import numpy as np
 
+from copy import deepcopy
 from glob import glob
 from scipy.spatial.transform import Rotation as R
 
@@ -64,7 +65,7 @@ def utm_to_bev(
     else:
         return pt_bev_array
 
-def form_frame_template(timestamp: float, idx: int, num_frame: int):
+def get_default_frame(timestamp: float, idx: int, num_frame: int):
     frame = {
         "prev": None if idx == 0 else str(timestamp + TSTEP * (idx - 1)),
         "next": None if idx == num_frame - 1 else str(timestamp + TSTEP * (idx + 1)),
@@ -194,12 +195,112 @@ def extract_agents(anno, MAX_DISTANCE=100, FILTER_Z_SHRESHOLD=10):
 
     return agents
 
+def reconstruct_reference_line(line, road_id, lane_id):
+    reference_line = {
+        "id": lane_id,
+        "lane_attribute": None,
+        "passable_type": None,
+        "point": {
+            "odom": [],
+            "ego": []
+        },
+        "road_id": road_id,
+        "left_lane_line_id": None,
+        "right_lane_line_id": None,
+        "left_neighbour_id": None,
+        "right_neighbour_id":None,
+    }
+
+    return reference_line
+
+def reconstruct_lane_line(line):
+
+
+
+    lane_line = {
+        "id": None,
+        "road_id": None,
+        "type": [],
+        "separate_index": [],
+        "point": {
+            "odom": [],
+            "ego": []
+        }
+    }
+
+    return lane_line
+
+def reconstruct_stop_line(line):
+
+
+
+    stop_line = {
+        "id": None,
+        "road_id": None,
+        "type": None,
+        "point": {
+            "odom": [],
+            "ego": []
+        }
+    }
+
+    return stop_line
+
+def reconstruct_curbs(line):
+
+
+
+    curbs = {
+        "id": None,
+        "road_id": None,
+        "point": {
+            "odom": [],
+            "ego": []
+        }
+    }
+
+    return curbs
+
+def find_lanes_of_interest(map, ego_road_id, ego_lane_id):
+    lanes_of_interest = [(38, 4)]
+    return lanes_of_interest
+
+def extract_maps(anno, map):
+    result_map = {
+        "map_type": "carla",
+        "reference_lines": [],
+        "lane_lines": [],
+        "stop_lines": [],
+        "curbs": []
+    }
+    
+    ego_box = find_ego_box(anno["bounding_boxes"])
+
+    # determin which lane should be extracted
+    lanes_of_interest = find_lanes_of_interest(
+                            map, ego_box["road_id"], ego_box["lane_id"])
+    
+    for road_id, line_id in lanes_of_interest:
+        for line in map[road_id][line_id]:
+
+            print(line.keys())
+            if line["Type"] == "Center":
+                print("left and right: ", line["Left"], line["Right"])
+
+            # if line["Type"] == "Center":
+            #     map["reference_lines"].append(
+            #         deepcopy(
+            #             reconstruct_reference_line(
+            #                 line, ego_road_id, ego_lane_id)))
+    
+    return map
+
 def extract_from_one_tar_file(tar_file: str):
     
     # Read clip metadata
     folder = os.path.dirname(tar_file)
     scene = os.path.basename(tar_file).split(".")[0]
-    scenario, map, route, weather = scene.split("_")
+    scenario, map_name, route, weather = scene.split("_")
 
     # Extract .tar.gz
     if not os.path.isdir(os.path.join(folder, scene)):
@@ -215,11 +316,15 @@ def extract_from_one_tar_file(tar_file: str):
         with gzip.open(anno_file, 'rb') as f:
             anno = json.load(f)
 
-        frame = form_frame_template(19980518.0, idx_anno, len(anno_file_list))
+        frame = get_default_frame(19980518.0, idx_anno, len(anno_file_list))
         frame["can_bus"] = extract_can_bus(anno)
         frame["agents"] = extract_agents(anno)
+        
+        map_file = os.path.join(folder, "maps", f"{map_name}_HD_map.npz")
+        map = dict(np.load(map_file, allow_pickle=True)["arr"])
+        frame["map"] = extract_maps(anno, map)
 
-        pprint(frame)
+        # pprint(frame)
 
     return
 
