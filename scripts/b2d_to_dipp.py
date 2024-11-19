@@ -1,4 +1,6 @@
 import os
+import time
+import pickle
 import tarfile
 import gzip
 import json
@@ -10,7 +12,7 @@ from scipy.spatial.transform import Rotation as R
 
 from pprint import pprint
 
-TSTEP = 0.1
+TSTEP = 100 # ms
 
 
 def utm_to_bev(
@@ -67,9 +69,9 @@ def utm_to_bev(
 
 def get_default_frame(timestamp: float, idx: int, num_frame: int):
     frame = {
-        "prev": None if idx == 0 else str(timestamp + TSTEP * (idx - 1)),
-        "next": None if idx == num_frame - 1 else str(timestamp + TSTEP * (idx + 1)),
-        "timestamp": str(timestamp + TSTEP * idx),
+        "prev": None if idx == 0 else str(timestamp + TSTEP * (idx - 1)).split(".")[0],
+        "next": None if idx == num_frame - 1 else str(timestamp + TSTEP * (idx + 1)).split(".")[0],
+        "timestamp": str(timestamp + TSTEP * idx).split(".")[0],
         "navi": None,
         "turn_switch": -1,
         "can_bus": None,
@@ -195,27 +197,7 @@ def extract_agents(anno, MAX_DISTANCE=100, FILTER_Z_SHRESHOLD=10):
 
     return agents
 
-def reconstruct_reference_line(line, road_id, lane_id):
-    reference_line = {
-        "id": lane_id,
-        "lane_attribute": None,
-        "passable_type": None,
-        "point": {
-            "odom": [],
-            "ego": []
-        },
-        "road_id": road_id,
-        "left_lane_line_id": None,
-        "right_lane_line_id": None,
-        "left_neighbour_id": None,
-        "right_neighbour_id":None,
-    }
-
-    return reference_line
-
 def reconstruct_lane_line(line):
-
-
 
     lane_line = {
         "id": None,
@@ -262,11 +244,25 @@ def reconstruct_curbs(line):
     return curbs
 
 def find_lanes_of_interest(map, ego_road_id, ego_lane_id):
-    lanes_of_interest = [(38, 4)]
+    lanes_of_interest = [(ego_road_id, ego_lane_id)]
+
+    for line in map[ego_road_id][ego_lane_id]:
+        if line["Type"] == "Center":
+            left_lane = line["Left"]
+            right_lane = line["Right"]
+            if (left_lane) \
+                and (left_lane not in lanes_of_interest) \
+                and (left_lane[1] in map[ego_road_id].keys()):
+                lanes_of_interest.append(left_lane)
+            if (right_lane) \
+                and (right_lane not in lanes_of_interest) \
+                and (right_lane[1] in map[ego_road_id].keys()):
+                lanes_of_interest.append(right_lane)
+
     return lanes_of_interest
 
-def extract_maps(anno, map):
-    result_map = {
+def extract_maps(anno, map_dict):
+    result_map_dict = {
         "map_type": "carla",
         "reference_lines": [],
         "lane_lines": [],
@@ -278,24 +274,41 @@ def extract_maps(anno, map):
 
     # determin which lane should be extracted
     lanes_of_interest = find_lanes_of_interest(
-                            map, ego_box["road_id"], ego_box["lane_id"])
+                            map_dict, ego_box["road_id"], ego_box["lane_id"])
     
-    for road_id, line_id in lanes_of_interest:
-        for line in map[road_id][line_id]:
-
-            print(line.keys())
+    for road_id, lane_id in lanes_of_interest:
+        
+        # Traffic light or Stop sign
+        if "Trigger_Volumes" in map_dict[road_id].keys():
+            for trigger_volume in map_dict[road_id]["Trigger_Volumes"]:
+                # TODO: do something to trigger volumes
+                continue
+        
+        for line in map_dict[road_id][lane_id]:
             if line["Type"] == "Center":
-                print("left and right: ", line["Left"], line["Right"])
+                points_global = np.array([[pt[0], pt[1]] for pt in np.array(line["Points"], dtype=object)[:, 0]])
+                points_local = utm_to_bev(points_global, 
+                                ego_box["location"][0], ego_box["location"][1], np.deg2rad(ego_box["rotation"][-1]))
+                reference_line = {
+                    "id": lane_id,
+                    "lane_attribute": None,
+                    "passable_type": None,
+                    "point": {
+                        "odom": points_global.tolist(),
+                        "ego": points_local.tolist()
+                    },
+                    "road_id": road_id,
+                    "left_lane_line_id": None,
+                    "right_lane_line_id": None,
+                    "left_neighbour_id": line["Left"][1],
+                    "right_neighbour_id": line["Right"][1]
+                }
+                result_map_dict["reference_lines"].append(deepcopy(reference_line))
 
-            # if line["Type"] == "Center":
-            #     map["reference_lines"].append(
-            #         deepcopy(
-            #             reconstruct_reference_line(
-            #                 line, ego_road_id, ego_lane_id)))
-    
-    return map
+    return result_map_dict
 
 def extract_from_one_tar_file(tar_file: str):
+    frame_list = []
     
     # Read clip metadata
     folder = os.path.dirname(tar_file)
@@ -316,7 +329,7 @@ def extract_from_one_tar_file(tar_file: str):
         with gzip.open(anno_file, 'rb') as f:
             anno = json.load(f)
 
-        frame = get_default_frame(19980518.0, idx_anno, len(anno_file_list))
+        frame = get_default_frame(time.time() * 1e3, idx_anno, len(anno_file_list))
         frame["can_bus"] = extract_can_bus(anno)
         frame["agents"] = extract_agents(anno)
         
@@ -325,14 +338,34 @@ def extract_from_one_tar_file(tar_file: str):
         frame["map"] = extract_maps(anno, map)
 
         # pprint(frame)
-
-    return
+        frame_list.append(deepcopy(frame))
+    return frame_list
 
 
 if __name__ == "__main__":
 
     DATA_ROOT = "../data/Bench2Drive-mini"
+    SAVE_ROOT = "../data/Bench2Drive-DIPP"
 
     tar_file_list = glob(os.path.join(DATA_ROOT, "*.tar.gz"))
     for tar_file in tar_file_list:
-        extract_from_one_tar_file(tar_file)
+        frame_list = extract_from_one_tar_file(tar_file)
+        
+        scene = {
+            "metadata": {
+                "version": "v0.0",
+                "scene_id": None,
+                "desc": os.path.basename(tar_file).split(".")[0]
+            },
+            "info": deepcopy(frame_list)
+        }
+
+        timestamp = scene["info"][0]["timestamp"]
+        # pickle
+        with open(os.path.join(SAVE_ROOT, timestamp + ".pkl"), "wb") as f:
+            pickle.dump(scene, f)
+        # json
+        with open(os.path.join(SAVE_ROOT, timestamp + ".json"), "w", encoding="utf-8") as f:
+            json.dump(scene, f, ensure_ascii=False, indent=4)
+
+
