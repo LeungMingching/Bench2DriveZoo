@@ -8,6 +8,7 @@ import numpy as np
 
 from copy import deepcopy
 from glob import glob
+from tqdm import tqdm
 from scipy.spatial.transform import Rotation as R
 
 from pprint import pprint
@@ -144,7 +145,7 @@ def extract_agents(anno, MAX_DISTANCE=100, FILTER_Z_SHRESHOLD=10):
         pose_local = utm_to_bev(
             np.array(location_global[0:2] + [yaw_global]),
             ego_x, ego_y, ego_heading)
-        location_local = pose_local[0:2].tolist()
+        location_local = pose_local[0:2].tolist() + [0.0]
         yaw_local = pose_local[2]
         velocity_local = world2ego.apply(velocity_global).tolist()
         acceleration_local = [0.0, 0.0, 0.0]
@@ -167,6 +168,15 @@ def extract_agents(anno, MAX_DISTANCE=100, FILTER_Z_SHRESHOLD=10):
         
         # dimension
         length, width, height = np.array(npc["extent"]) * 2
+        corner_points_in_ag_cord = [
+            [0.5 * length, 0.5 * width, 0],
+            [0.5 * length, - 0.5 * width, 0],
+            [- 0.5 * length, - 0.5 * width, 0],
+            [- 0.5 * length, 0.5 * width, 0]]
+        trans_ego2ag = np.array([pose_local[0], pose_local[1], 0])
+        rot_ego2ag = R.from_euler("xyz", [0 ,0, yaw_local])
+        corner_points = [
+            (rot_ego2ag.apply(np.array(pt)) + trans_ego2ag).tolist() for pt in corner_points_in_ag_cord]
 
         # fill
         agents[npc["id"]] = {
@@ -188,7 +198,7 @@ def extract_agents(anno, MAX_DISTANCE=100, FILTER_Z_SHRESHOLD=10):
             "type": type,
             "is_movable": is_movable,
             "dimension": {
-                "corner_points": [], # empty, calculate if needed
+                "corner_points": corner_points, # empty, calculate if needed
                 "width": width,
                 "height": height,
                 "length": length
@@ -262,6 +272,15 @@ def find_lanes_of_interest(map, ego_road_id, ego_lane_id):
     return lanes_of_interest
 
 def extract_maps(anno, map_dict):
+    LANE_TYPE_MAPPING = {
+        ("White", "Broken"): 1,
+        ("White", "Solid"): 2,
+        ("White", "SolidSolid"): 4,
+        ("Yellow", "Broken"): 7,
+        ("Yellow", "Solid"): 8,
+        ("Yellow", "SolidSolid"): 10
+    }
+    
     result_map_dict = {
         "map_type": "carla",
         "reference_lines": [],
@@ -283,12 +302,12 @@ def extract_maps(anno, map_dict):
             for trigger_volume in map_dict[road_id]["Trigger_Volumes"]:
                 # TODO: do something to trigger volumes
                 continue
-        
+
         for line in map_dict[road_id][lane_id]:
+            points_global = np.array([[pt[0], pt[1]] for pt in np.array(line["Points"], dtype=object)[:, 0]])
+            points_local = utm_to_bev(points_global, 
+                            ego_box["location"][0], ego_box["location"][1], np.deg2rad(ego_box["rotation"][-1]))
             if line["Type"] == "Center":
-                points_global = np.array([[pt[0], pt[1]] for pt in np.array(line["Points"], dtype=object)[:, 0]])
-                points_local = utm_to_bev(points_global, 
-                                ego_box["location"][0], ego_box["location"][1], np.deg2rad(ego_box["rotation"][-1]))
                 reference_line = {
                     "id": lane_id,
                     "lane_attribute": None,
@@ -304,6 +323,19 @@ def extract_maps(anno, map_dict):
                     "right_neighbour_id": line["Right"][1]
                 }
                 result_map_dict["reference_lines"].append(deepcopy(reference_line))
+            else:
+                converted_type = LANE_TYPE_MAPPING.get((line["Type"], line["Color"]), 1)
+                lane_line = {
+                    "id": lane_id,
+                    "road_id": road_id,
+                    "type": [converted_type],
+                    "separate_index": [],
+                    "point": {
+                        "odom": points_global.tolist(),
+                        "ego": points_local.tolist()
+                    }
+                }
+                result_map_dict["lane_lines"].append(deepcopy(lane_line))
 
     return result_map_dict
 
@@ -324,8 +356,8 @@ def extract_from_one_tar_file(tar_file: str):
     # Anno
     anno_file_list = glob(os.path.join(folder, scene, "anno", "*.json.gz"))
     anno_file_list.sort()
-    # for idx_anno, anno_file in enumerate(anno_file_list):
-    for idx_anno, anno_file in enumerate(anno_file_list[12:13]):
+    # for idx_anno, anno_file in enumerate(tqdm(anno_file_list)):
+    for idx_anno, anno_file in enumerate(tqdm(anno_file_list[12:22])):
         with gzip.open(anno_file, 'rb') as f:
             anno = json.load(f)
 
@@ -357,15 +389,19 @@ if __name__ == "__main__":
                 "scene_id": None,
                 "desc": os.path.basename(tar_file).split(".")[0]
             },
-            "info": deepcopy(frame_list)
+            "infos": deepcopy(frame_list)
         }
 
-        timestamp = scene["info"][0]["timestamp"]
+        timestamp = scene["infos"][0]["timestamp"]
+        if not(os.path.exists(os.path.join(SAVE_ROOT, timestamp))):
+            os.makedirs(os.path.join(SAVE_ROOT, timestamp, "imgs"), exist_ok=True)
         # pickle
-        with open(os.path.join(SAVE_ROOT, timestamp + ".pkl"), "wb") as f:
+        with open(os.path.join(SAVE_ROOT, timestamp, timestamp + ".pkl"), "wb") as f:
             pickle.dump(scene, f)
+        print("Saved to ", os.path.join(SAVE_ROOT, timestamp, timestamp + ".pkl"))
         # json
-        with open(os.path.join(SAVE_ROOT, timestamp + ".json"), "w", encoding="utf-8") as f:
+        with open(os.path.join(SAVE_ROOT, timestamp, timestamp + ".json"), "w", encoding="utf-8") as f:
             json.dump(scene, f, ensure_ascii=False, indent=4)
+        print("Saved to ", os.path.join(SAVE_ROOT, timestamp, timestamp + ".json"))
 
 
