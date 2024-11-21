@@ -328,6 +328,42 @@ def extract_maps(anno, map_dict):
 
     return result_map_dict
 
+def extract_cams(anno, camera_root, save_dir):
+    IMGS_FOLDER_NAME_MAPPING = {
+        "CAM_FRONT": "rgb_front",
+        "CAM_FRONT_LEFT": "rgb_front_left",
+        "CAM_FRONT_RIGHT": "rgb_front_right",
+        "CAM_BACK": "rgb_back",
+        "CAM_BACK_LEFT": "rgb_back_left",
+        "CAM_BACK_RIGHT": "rgb_back_right"
+    }
+
+    def extract_one_cam(type: str):
+        cam = {
+            "data_path": "图片在Root下的相对路径",
+            "type": type,
+            "timestamp": None,
+            "sensor2ego_translation": None,
+            "sensor2ego_rotation": None,
+            "ego2global_translation": None,
+            "ego2global_rotation": None,
+            "sensor2lidar_translation": None,
+            "sensor2lidar_rotation": None,
+            "cam_intrinsic": None
+        }
+        return cam
+    
+    cams = {
+        "CAM_FRONT": {},
+        "CAM_FRONT_RIGHT": {},
+        "CAM_FRONT_LEFT": {},
+        "CAM_BACK": {},
+        "CAM_BACK_LEFT": {},
+        "CAM_BACK_RIGHT": {}
+    }
+
+    return cams
+
 def extract_from_one_tar_file(tar_file: str, save_dir: str):
     info_list = []
     
@@ -350,13 +386,16 @@ def extract_from_one_tar_file(tar_file: str, save_dir: str):
         with gzip.open(anno_file, 'rb') as f:
             anno = json.load(f)
 
-        frame = get_default_frame(time.time() * 1e3, idx_anno, len(anno_file_list))
+        start_timestamp = time.time() * 1e3
+        frame = get_default_frame(start_timestamp, idx_anno, len(anno_file_list))
         frame["can_bus"] = extract_can_bus(anno)
         frame["agents"] = extract_agents(anno)
         
         map_file = os.path.join(folder, "maps", f"{map_name}_HD_map.npz")
         map = dict(np.load(map_file, allow_pickle=True)["arr"])
         frame["map"] = extract_maps(anno, map)
+
+        frame["cams"] = extract_cams(anno, save_dir)
 
         # pprint(frame)
         info_list.append(deepcopy(frame))
