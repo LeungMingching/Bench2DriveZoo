@@ -4,6 +4,7 @@ import pickle
 import tarfile
 import gzip
 import json
+import hashlib
 import numpy as np
 
 from copy import deepcopy
@@ -99,7 +100,7 @@ def extract_can_bus(anno):
 
     position = ego_box["location"]
     rot_matrix = R.from_euler("xyz", ego_box["rotation"], degrees=True)
-    quat = rot_matrix.as_quat().tolist()
+    quat = rot_matrix.as_quat()[[3, 0, 1, 2]].tolist()
     acceleration = anno["acceleration"]
     angular_velocity = anno["angular_velocity"]
     velocity = (anno["speed"] * rot_matrix.apply(np.array([1, 0, 0]))).tolist()
@@ -207,21 +208,6 @@ def extract_agents(anno, MAX_DISTANCE=100, FILTER_Z_SHRESHOLD=10):
 
     return agents
 
-def reconstruct_lane_line(line):
-
-    lane_line = {
-        "id": None,
-        "road_id": None,
-        "type": [],
-        "separate_index": [],
-        "point": {
-            "odom": [],
-            "ego": []
-        }
-    }
-
-    return lane_line
-
 def reconstruct_stop_line(line):
 
 
@@ -295,14 +281,17 @@ def extract_maps(anno, map_dict):
     lanes_of_interest = find_lanes_of_interest(
                             map_dict, ego_box["road_id"], ego_box["lane_id"])
     
-    for road_id, lane_id in lanes_of_interest:
-        
-        # Traffic light or Stop sign
-        if "Trigger_Volumes" in map_dict[road_id].keys():
-            for trigger_volume in map_dict[road_id]["Trigger_Volumes"]:
-                # TODO: do something to trigger volumes
-                continue
+    # Traffic lights
+    passable_type_mapping = {}
+    for box in anno["bounding_boxes"]:
+        if box["class"] == "traffic_light": 
+            if box["state"] == 0:
+                passable_type_mapping[(box["road_id"], box["lane_id"])] = int(np.uint8(0b00000000))
+            else:
+                passable_type_mapping[(box["road_id"], box["lane_id"])] = int(np.uint8(0b11111111))
 
+    # Reference lines or Lane lines
+    for road_id, lane_id in lanes_of_interest:
         for line in map_dict[road_id][lane_id]:
             points_global = np.array([[pt[0], pt[1]] for pt in np.array(line["Points"], dtype=object)[:, 0]])
             points_local = utm_to_bev(points_global, 
@@ -311,7 +300,7 @@ def extract_maps(anno, map_dict):
                 reference_line = {
                     "id": lane_id,
                     "lane_attribute": None,
-                    "passable_type": None,
+                    "passable_type": passable_type_mapping.get((road_id, lane_id), int(np.uint8(0b11111111))),
                     "point": {
                         "odom": points_global.tolist(),
                         "ego": points_local.tolist()
@@ -339,8 +328,8 @@ def extract_maps(anno, map_dict):
 
     return result_map_dict
 
-def extract_from_one_tar_file(tar_file: str):
-    frame_list = []
+def extract_from_one_tar_file(tar_file: str, save_dir: str):
+    info_list = []
     
     # Read clip metadata
     folder = os.path.dirname(tar_file)
@@ -357,7 +346,7 @@ def extract_from_one_tar_file(tar_file: str):
     anno_file_list = glob(os.path.join(folder, scene, "anno", "*.json.gz"))
     anno_file_list.sort()
     # for idx_anno, anno_file in enumerate(tqdm(anno_file_list)):
-    for idx_anno, anno_file in enumerate(tqdm(anno_file_list[12:22])):
+    for idx_anno, anno_file in enumerate(tqdm(anno_file_list[35:45])):
         with gzip.open(anno_file, 'rb') as f:
             anno = json.load(f)
 
@@ -370,8 +359,8 @@ def extract_from_one_tar_file(tar_file: str):
         frame["map"] = extract_maps(anno, map)
 
         # pprint(frame)
-        frame_list.append(deepcopy(frame))
-    return frame_list
+        info_list.append(deepcopy(frame))
+    return info_list
 
 
 if __name__ == "__main__":
@@ -381,27 +370,29 @@ if __name__ == "__main__":
 
     tar_file_list = glob(os.path.join(DATA_ROOT, "*.tar.gz"))
     for tar_file in tar_file_list:
-        frame_list = extract_from_one_tar_file(tar_file)
+
+        tar_file_name = os.path.basename(tar_file).split(".")[0]
+        if not(os.path.exists(os.path.join(SAVE_ROOT, tar_file_name))):
+            os.makedirs(os.path.join(SAVE_ROOT, tar_file_name), exist_ok=True)
+        
+        info_list = extract_from_one_tar_file(tar_file, SAVE_ROOT)
         
         scene = {
             "metadata": {
                 "version": "v0.0",
-                "scene_id": None,
+                "scene_id": str(hash(tar_file_name)),
                 "desc": os.path.basename(tar_file).split(".")[0]
             },
-            "infos": deepcopy(frame_list)
+            "infos": deepcopy(info_list)
         }
-
-        timestamp = scene["infos"][0]["timestamp"]
-        if not(os.path.exists(os.path.join(SAVE_ROOT, timestamp))):
-            os.makedirs(os.path.join(SAVE_ROOT, timestamp, "imgs"), exist_ok=True)
-        # pickle
-        with open(os.path.join(SAVE_ROOT, timestamp, timestamp + ".pkl"), "wb") as f:
+        
+        # save pickle
+        with open(os.path.join(SAVE_ROOT, tar_file_name, tar_file_name + ".pkl"), "wb") as f:
             pickle.dump(scene, f)
-        print("Saved to ", os.path.join(SAVE_ROOT, timestamp, timestamp + ".pkl"))
-        # json
-        with open(os.path.join(SAVE_ROOT, timestamp, timestamp + ".json"), "w", encoding="utf-8") as f:
+        print("Saved to ", os.path.join(SAVE_ROOT, tar_file_name, tar_file_name + ".pkl"))
+        # save json
+        with open(os.path.join(SAVE_ROOT, tar_file_name, tar_file_name + ".json"), "w", encoding="utf-8") as f:
             json.dump(scene, f, ensure_ascii=False, indent=4)
-        print("Saved to ", os.path.join(SAVE_ROOT, timestamp, timestamp + ".json"))
+        print("Saved to ", os.path.join(SAVE_ROOT, tar_file_name, tar_file_name + ".json"))
 
 
