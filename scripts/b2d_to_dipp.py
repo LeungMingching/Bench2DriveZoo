@@ -4,7 +4,7 @@ import pickle
 import tarfile
 import gzip
 import json
-import hashlib
+import shutil
 import numpy as np
 
 from copy import deepcopy
@@ -297,7 +297,7 @@ def extract_maps(anno, map_dict):
 
     return result_map_dict
 
-def extract_cams(anno, camera_root, save_dir):
+def extract_cams(anno, timestamp, idx_anno, source_root, save_root):
     IMGS_FOLDER_NAME_MAPPING = {
         "CAM_FRONT": "rgb_front",
         "CAM_FRONT_LEFT": "rgb_front_left",
@@ -307,28 +307,53 @@ def extract_cams(anno, camera_root, save_dir):
         "CAM_BACK_RIGHT": "rgb_back_right"
     }
 
-    def extract_one_cam(type: str):
+    def extract_one_cam(cam_type: str):
+        source_dir = os.path.join(
+            source_root, "camera", IMGS_FOLDER_NAME_MAPPING[cam_type])
+        image_file_list = glob(os.path.join(source_dir, "*.jpg"))
+        image_file_list.sort()
+        source_file = image_file_list[idx_anno]
+
+        save_dir = os.path.join(
+            save_root, "imgs", cam_type)
+        if not(os.path.exists(save_dir)):
+            os.makedirs(save_dir, exist_ok=True)
+        save_file = os.path.join(save_dir, timestamp + ".jpg")
+
+        shutil.copyfile(source_file, save_file)
+        relative_path = "/".join(save_file.split("/")[3:])
+
+        sensor2ego_homo_trfs = np.array(anno["sensors"][cam_type]["cam2ego"])
+        sensor2ego_translation = sensor2ego_homo_trfs[:-1, -1].tolist()
+        sensor2ego_rotation = R.from_matrix(sensor2ego_homo_trfs[:-1, :-1]) \
+                                .as_quat()[[3, 0, 1, 2]].tolist()
+        
+        ego_box = find_ego_box(anno["bounding_boxes"])
+        ego2global_translation = (-1 * np.array(ego_box["location"])).tolist()
+        ego2global_rotation = R.from_euler("xyz", -1 * np.array(ego_box["rotation"]), degrees=True) \
+                                .as_quat()[[3, 0, 1, 2]].tolist()
+        
         cam = {
-            "data_path": "图片在Root下的相对路径",
-            "type": type,
-            "timestamp": None,
-            "sensor2ego_translation": None,
-            "sensor2ego_rotation": None,
-            "ego2global_translation": None,
-            "ego2global_rotation": None,
-            "sensor2lidar_translation": None,
-            "sensor2lidar_rotation": None,
-            "cam_intrinsic": None
+            "data_path": relative_path,
+            "type": cam_type,
+            "timestamp": timestamp,
+            "sensor2ego_translation": sensor2ego_translation,
+            "sensor2ego_rotation": sensor2ego_rotation,
+            "ego2global_translation": ego2global_translation,
+            "ego2global_rotation": ego2global_rotation,
+            "sensor2lidar_translation": sensor2ego_translation,
+            "sensor2lidar_rotation": sensor2ego_rotation,
+            "cam_intrinsic": anno["sensors"][cam_type]["intrinsic"]
         }
         return cam
     
     cams = {
-        "CAM_FRONT": {},
-        "CAM_FRONT_RIGHT": {},
-        "CAM_FRONT_LEFT": {},
-        "CAM_BACK": {},
-        "CAM_BACK_LEFT": {},
-        "CAM_BACK_RIGHT": {}
+        "CAM_FRONT": extract_one_cam("CAM_FRONT"),
+        "CAM_FRONT_RIGHT": extract_one_cam("CAM_FRONT_RIGHT"),
+        "CAM_FRONT_LEFT": extract_one_cam("CAM_FRONT_LEFT"),
+        "CAM_BACK": extract_one_cam("CAM_BACK"),
+        "CAM_BACK_LEFT": extract_one_cam("CAM_BACK_LEFT"),
+        "CAM_BACK_RIGHT": extract_one_cam("CAM_BACK_RIGHT")
     }
 
     return cams
@@ -356,7 +381,7 @@ def extract_navi(anno):
     }
     return navi
 
-def extract_from_one_tar_file(tar_file: str, save_dir: str):
+def extract_from_one_tar_file(tar_file: str, save_root: str):
     info_list = []
     
     # Read clip metadata
@@ -373,12 +398,12 @@ def extract_from_one_tar_file(tar_file: str, save_dir: str):
     # Anno
     anno_file_list = glob(os.path.join(folder, scene, "anno", "*.json.gz"))
     anno_file_list.sort()
+    start_timestamp = time.time() * 1e3
     # for idx_anno, anno_file in enumerate(tqdm(anno_file_list)):
     for idx_anno, anno_file in enumerate(tqdm(anno_file_list[35:45])):
         with gzip.open(anno_file, 'rb') as f:
             anno = json.load(f)
 
-        start_timestamp = time.time() * 1e3
         frame = get_default_frame(start_timestamp, idx_anno, len(anno_file_list))
         frame["can_bus"] = extract_can_bus(anno)
         frame["agents"] = extract_agents(anno)
@@ -387,9 +412,9 @@ def extract_from_one_tar_file(tar_file: str, save_dir: str):
         map = dict(np.load(map_file, allow_pickle=True)["arr"])
         frame["map"] = extract_maps(anno, map)
 
-        frame["cams"] = extract_cams(anno,
-            camera_root=os.path.join(folder, scene, "camera"),
-            save_dir=os.path.join(save_dir, scene, "imgs"))
+        frame["cams"] = extract_cams(anno, frame["timestamp"], idx_anno,
+            source_root=os.path.join(folder, scene),
+            save_root=os.path.join(save_root, scene))
 
         frame["navi"] = extract_navi(anno)
 
