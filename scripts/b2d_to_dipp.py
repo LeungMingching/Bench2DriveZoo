@@ -208,37 +208,6 @@ def extract_agents(anno, MAX_DISTANCE=100, FILTER_Z_SHRESHOLD=10):
 
     return agents
 
-def reconstruct_stop_line(line):
-
-
-
-    stop_line = {
-        "id": None,
-        "road_id": None,
-        "type": None,
-        "point": {
-            "odom": [],
-            "ego": []
-        }
-    }
-
-    return stop_line
-
-def reconstruct_curbs(line):
-
-
-
-    curbs = {
-        "id": None,
-        "road_id": None,
-        "point": {
-            "odom": [],
-            "ego": []
-        }
-    }
-
-    return curbs
-
 def find_lanes_of_interest(map, ego_road_id, ego_lane_id):
     lanes_of_interest = [(ego_road_id, ego_lane_id)]
 
@@ -299,7 +268,7 @@ def extract_maps(anno, map_dict):
             if line["Type"] == "Center":
                 reference_line = {
                     "id": lane_id,
-                    "lane_attribute": None,
+                    "lane_attribute": 7,
                     "passable_type": passable_type_mapping.get((road_id, lane_id), int(np.uint8(0b11111111))),
                     "point": {
                         "odom": points_global.tolist(),
@@ -364,6 +333,29 @@ def extract_cams(anno, camera_root, save_dir):
 
     return cams
 
+def extract_navi(anno):
+    ROAD_OPTION_TO_COMMAND = {
+        3: 0,
+        1: 1,
+        2: 2,
+        -1: -1
+    }
+
+    speed_limit = 60 / 3.6 # default value
+    for box in anno["bounding_boxes"]:
+        if box["class"] == "traffic_sign":
+            type_id_list = box["type_id"].split(".")
+            if "speed_limit" in type_id_list:
+                if box["affects_ego"]:
+                    speed_limit = float(type_id_list[-1]) / 3.6
+
+    navi = {
+        "command": ROAD_OPTION_TO_COMMAND.get(anno["next_command"], 0),
+        "intersection_distance": 999.9,
+        "speed_limit": speed_limit
+    }
+    return navi
+
 def extract_from_one_tar_file(tar_file: str, save_dir: str):
     info_list = []
     
@@ -395,7 +387,11 @@ def extract_from_one_tar_file(tar_file: str, save_dir: str):
         map = dict(np.load(map_file, allow_pickle=True)["arr"])
         frame["map"] = extract_maps(anno, map)
 
-        frame["cams"] = extract_cams(anno, save_dir)
+        frame["cams"] = extract_cams(anno,
+            camera_root=os.path.join(folder, scene, "camera"),
+            save_dir=os.path.join(save_dir, scene, "imgs"))
+
+        frame["navi"] = extract_navi(anno)
 
         # pprint(frame)
         info_list.append(deepcopy(frame))
