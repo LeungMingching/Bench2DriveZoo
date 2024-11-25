@@ -8,6 +8,7 @@ import shutil
 import numpy as np
 
 from copy import deepcopy
+from multiprocessing import Pool
 from glob import glob
 from tqdm import tqdm
 from scipy.spatial.transform import Rotation as R
@@ -15,6 +16,10 @@ from scipy.spatial.transform import Rotation as R
 from pprint import pprint
 
 TSTEP = 100 # ms
+
+DATA_ROOT = "../data/Bench2Drive-mini"
+SAVE_ROOT = "../data/Bench2Drive-DIPP"
+NUM_WORKER = 2
 
 
 def utm_to_bev(
@@ -399,8 +404,8 @@ def extract_from_one_tar_file(tar_file: str, save_root: str):
     anno_file_list = glob(os.path.join(folder, scene, "anno", "*.json.gz"))
     anno_file_list.sort()
     start_timestamp = time.time() * 1e3
-    # for idx_anno, anno_file in enumerate(tqdm(anno_file_list)):
-    for idx_anno, anno_file in enumerate(tqdm(anno_file_list[35:45])):
+    for idx_anno, anno_file in enumerate(tqdm(anno_file_list)):
+    # for idx_anno, anno_file in enumerate(tqdm(anno_file_list[35:45])):
         with gzip.open(anno_file, 'rb') as f:
             anno = json.load(f)
 
@@ -422,37 +427,50 @@ def extract_from_one_tar_file(tar_file: str, save_root: str):
         info_list.append(deepcopy(frame))
     return info_list
 
+def work(tar_file, save_root):
+    tar_file_name = os.path.basename(tar_file).split(".")[0]
+    if not(os.path.exists(os.path.join(save_root, tar_file_name))):
+        os.makedirs(os.path.join(save_root, tar_file_name), exist_ok=True)
+    
+    info_list = extract_from_one_tar_file(tar_file, save_root)
+    
+    scene = {
+        "metadata": {
+            "version": "v0.0",
+            "scene_id": str(hash(tar_file_name)),
+            "desc": os.path.basename(tar_file).split(".")[0]
+        },
+        "infos": deepcopy(info_list)
+    }
+    
+    # save pickle
+    with open(os.path.join(save_root, tar_file_name, tar_file_name + ".pkl"), "wb") as f:
+        pickle.dump(scene, f)
+    print("Saved to ", os.path.join(save_root, tar_file_name, tar_file_name + ".pkl"))
+    # save json
+    with open(os.path.join(save_root, tar_file_name, tar_file_name + ".json"), "w", encoding="utf-8") as f:
+        json.dump(scene, f, ensure_ascii=False, indent=4)
+    print("Saved to ", os.path.join(save_root, tar_file_name, tar_file_name + ".json"))
+
+def single_process(file_list: list):
+    for file in tqdm(file_list, desc='Extracting tar(s)'):
+            work(file, SAVE_ROOT)
+
+def multi_process(file_list: list):
+    pbar = tqdm(total=len(file_list), desc='Extracting tar(s)')
+    pbar_update = lambda *args: pbar.update(1)
+
+    pool = Pool(NUM_WORKER)
+    for file in file_list:
+        pool.apply_async(work, (file, SAVE_ROOT), callback=pbar_update)
+    pool.close()
+    pool.join()
+
 
 if __name__ == "__main__":
 
-    DATA_ROOT = "../data/Bench2Drive-mini"
-    SAVE_ROOT = "../data/Bench2Drive-DIPP"
-
     tar_file_list = glob(os.path.join(DATA_ROOT, "*.tar.gz"))
-    for tar_file in tar_file_list:
-
-        tar_file_name = os.path.basename(tar_file).split(".")[0]
-        if not(os.path.exists(os.path.join(SAVE_ROOT, tar_file_name))):
-            os.makedirs(os.path.join(SAVE_ROOT, tar_file_name), exist_ok=True)
-        
-        info_list = extract_from_one_tar_file(tar_file, SAVE_ROOT)
-        
-        scene = {
-            "metadata": {
-                "version": "v0.0",
-                "scene_id": str(hash(tar_file_name)),
-                "desc": os.path.basename(tar_file).split(".")[0]
-            },
-            "infos": deepcopy(info_list)
-        }
-        
-        # save pickle
-        with open(os.path.join(SAVE_ROOT, tar_file_name, tar_file_name + ".pkl"), "wb") as f:
-            pickle.dump(scene, f)
-        print("Saved to ", os.path.join(SAVE_ROOT, tar_file_name, tar_file_name + ".pkl"))
-        # save json
-        with open(os.path.join(SAVE_ROOT, tar_file_name, tar_file_name + ".json"), "w", encoding="utf-8") as f:
-            json.dump(scene, f, ensure_ascii=False, indent=4)
-        print("Saved to ", os.path.join(SAVE_ROOT, tar_file_name, tar_file_name + ".json"))
-
-
+    if NUM_WORKER > 1:
+        multi_process(tar_file_list)
+    else:
+        single_process(tar_file_list)
