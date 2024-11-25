@@ -19,7 +19,7 @@ TSTEP = 100 # ms
 
 DATA_ROOT = "../data/Bench2Drive-mini"
 SAVE_ROOT = "../data/Bench2Drive-DIPP"
-NUM_WORKER = 2
+NUM_WORKER = 1
 
 
 def utm_to_bev(
@@ -267,9 +267,10 @@ def extract_maps(anno, map_dict):
     # Reference lines or Lane lines
     for road_id, lane_id in lanes_of_interest:
         for line in map_dict[road_id][lane_id]:
-            points_global = np.array([[pt[0], pt[1]] for pt in np.array(line["Points"], dtype=object)[:, 0]])
-            points_local = utm_to_bev(points_global, 
+            points_global = np.array([[pt[0], pt[1], 0.0] for pt in np.array(line["Points"], dtype=object)[:, 0]])
+            points_local = utm_to_bev(points_global[:, :2], 
                             ego_box["location"][0], ego_box["location"][1], np.deg2rad(ego_box["rotation"][-1]))
+            points_local = np.concatenate((points_local, np.zeros((len(points_local), 1))), axis=-1)
             if line["Type"] == "Center":
                 reference_line = {
                     "id": lane_id,
@@ -330,13 +331,12 @@ def extract_cams(anno, timestamp, idx_anno, source_root, save_root):
 
         sensor2ego_homo_trfs = np.array(anno["sensors"][cam_type]["cam2ego"])
         sensor2ego_translation = sensor2ego_homo_trfs[:-1, -1].tolist()
-        sensor2ego_rotation = R.from_matrix(sensor2ego_homo_trfs[:-1, :-1]) \
-                                .as_quat()[[3, 0, 1, 2]].tolist()
+        sensor2ego_rotation = sensor2ego_homo_trfs[:-1, :-1].tolist()
         
         ego_box = find_ego_box(anno["bounding_boxes"])
         ego2global_translation = (-1 * np.array(ego_box["location"])).tolist()
         ego2global_rotation = R.from_euler("xyz", -1 * np.array(ego_box["rotation"]), degrees=True) \
-                                .as_quat()[[3, 0, 1, 2]].tolist()
+                                .as_matrix().tolist()
         
         cam = {
             "data_path": relative_path,

@@ -179,25 +179,24 @@ def odom2ego(frame, pts_odom):
     return new_points
 
 
-# def write2mp4(imagefolder,bevname, viewname, video_name):
+def write2mp4(imagefolder,bevname, viewname, video_name):
     """
     """
     
 
-    front = "center_120_camera"
-    front_right = "right_front_camera"
-    front_left = "left_front_camera"
-    back = "back_camera"
-    back_right = "right_back_camera"
-    back_left = "left_back_camera"
+    front = "CAM_FRONT"
+    front_right = "CAM_FRONT_RIGHT"
+    front_left = "CAM_FRONT_LEFT"
+    back = "CAM_BACK"
+    back_right = "CAM_BACK_RIGHT"
+    back_left = "CAM_BACK_LEFT"
 
 
-    images = [img for img in os.listdir(os.path.join(imagefolder,front)) if img.endswith(".jpeg") or img.endswith(".png")]
+    images = [img for img in os.listdir(os.path.join(imagefolder,front)) if img.endswith(".jpeg") or img.endswith(".png") or img.endswith(".jpg")]
     images.sort()
     fourcc = cv.VideoWriter_fourcc(*'mp4v')
     fps=5.0
     timeflag = images[0].split("_")[0]
-    print("images[0]",images[0])
     img = cv.imread(os.path.join(os.path.join(imagefolder,front), images[0]))
     height,width,layers = img.shape
     video = cv.VideoWriter(video_name, fourcc, fps,(int(3*(width/3))+int(2*(height/3)), int(2*(height/3))))
@@ -205,16 +204,15 @@ def odom2ego(frame, pts_odom):
 
     for image in tqdm(images):
         timestamp = image.split("_")[-1]
-        img_front_right_name  = os.path.join(imagefolder,front_right + "/" + timeflag + "_right_front_camera_" + timestamp)
-        img_front_left_name   = os.path.join(imagefolder,front_left + "/" + timeflag + "_left_front_camera_" + timestamp)
-        img_back_name         = os.path.join(imagefolder,back + "/" + timeflag + "_back_camera_" + timestamp)
-        img_back_right_name   = os.path.join(imagefolder,back_right + "/" + timeflag + "_right_back_camera_" + timestamp)
-        img_back_left_name    = os.path.join(imagefolder,back_left + "/" + timeflag + "_left_back_camera_" + timestamp)
+        img_front_right_name  = os.path.join(imagefolder,front_right + "/" + timestamp)
+        img_front_left_name   = os.path.join(imagefolder,front_left + "/" + timestamp)
+        img_back_name         = os.path.join(imagefolder,back + "/" + timestamp)
+        img_back_right_name   = os.path.join(imagefolder,back_right + "/" + timestamp)
+        img_back_left_name    = os.path.join(imagefolder,back_left + "/" + timestamp)
         img_bev = os.path.join(bevname,timestamp)
         # print("img_front_right_name==>",img_front_right_name)
         # print("img_bev==>",img_bev)
 
-        
         if (os.path.exists(os.path.join(imagefolder,front)+"/"+image)
             and os.path.exists(img_front_right_name)
             and os.path.exists(img_front_left_name)
@@ -259,7 +257,7 @@ def odom2ego(frame, pts_odom):
 
     print(f"video has saved to{video_name}")
 
-# def getextrinsics(R, T):
+def getextrinsics(R, T):
     """
     """
     extrinsics_martix = np.eye(4)
@@ -466,7 +464,7 @@ def main():
     """
     """
 
-    file = "1732093251656"
+    file = "ConstructionObstacle_Town05_Route68_Weather8"
 
     ########################################################################################
     jsonpath = f"../data/Bench2Drive-DIPP/{file}/{file}.json"
@@ -485,96 +483,95 @@ def main():
     ########################################################################################
     data = readJson(jsonpath)
 
-    if sampleFlag:
-        sample(data, samplepath, percent)
+    # if sampleFlag:
+    #     sample(data, samplepath, percent)
 
     flag=False
     
     for i in tqdm(range(len(data["infos"]))):
 
+        timestamp = data["infos"][i]["timestamp"]
         agents = data["infos"][i]["agents"]
         mapinfo = data["infos"][i]["map"]
-        # print(data["infos"][i]["cams"]["CAM_FRONT"]["data_path"])
 
+        data_path_CAM_FRONT       = "../data/Bench2Drive-DIPP/"+("/".join(data["infos"][i]["cams"]["CAM_FRONT"]["data_path"].split("/")))
+        data_path_CAM_FRONT_RIGHT = "../data/Bench2Drive-DIPP/"+("/".join(data["infos"][i]["cams"]["CAM_FRONT_RIGHT"]["data_path"].split("/")))
+        data_path_CAM_FRONT_LEFT  = "../data/Bench2Drive-DIPP/"+("/".join(data["infos"][i]["cams"]["CAM_FRONT_LEFT"]["data_path"].split("/")))
+        data_path_CAM_BACK        = "../data/Bench2Drive-DIPP/"+("/".join(data["infos"][i]["cams"]["CAM_BACK"]["data_path"].split("/")))
+        data_path_CAM_BACK_RIGHT  = "../data/Bench2Drive-DIPP/"+("/".join(data["infos"][i]["cams"]["CAM_BACK_RIGHT"]["data_path"].split("/")))
+        data_path_CAM_BACK_LEFT   = "../data/Bench2Drive-DIPP/"+("/".join(data["infos"][i]["cams"]["CAM_BACK_LEFT"]["data_path"].split("/")))
+        
+        if (os.path.exists(data_path_CAM_FRONT)
+            and os.path.exists(data_path_CAM_FRONT_RIGHT)
+            and os.path.exists(data_path_CAM_FRONT_LEFT)
+            and os.path.exists(data_path_CAM_BACK)
+            and os.path.exists(data_path_CAM_BACK_RIGHT)
+            and os.path.exists(data_path_CAM_BACK_LEFT)):
 
-        # data_path_CAM_FRONT       = "./sample/"+("/".join(data["infos"][i]["cams"]["CAM_FRONT"]["data_path"].split("/")[2:]))
-        # data_path_CAM_FRONT_RIGHT = "./sample/"+("/".join(data["infos"][i]["cams"]["CAM_FRONT_RIGHT"]["data_path"].split("/")[2:]))
-        # data_path_CAM_FRONT_LEFT  = "./sample/"+("/".join(data["infos"][i]["cams"]["CAM_FRONT_LEFT"]["data_path"].split("/")[2:]))
-        # data_path_CAM_BACK        = "./sample/"+("/".join(data["infos"][i]["cams"]["CAM_BACK"]["data_path"].split("/")[2:]))
-        # data_path_CAM_BACK_RIGHT  = "./sample/"+("/".join(data["infos"][i]["cams"]["CAM_BACK_RIGHT"]["data_path"].split("/")[2:]))
-        # data_path_CAM_BACK_LEFT   = "./sample/"+("/".join(data["infos"][i]["cams"]["CAM_BACK_LEFT"]["data_path"].split("/")[2:]))
+            img_front = cv.imread(data_path_CAM_FRONT)
+            img_front_right = cv.imread(data_path_CAM_FRONT_RIGHT)
+            img_front_left = cv.imread(data_path_CAM_FRONT_LEFT)
+            img_back = cv.imread(data_path_CAM_BACK)
+            img_back_right = cv.imread(data_path_CAM_BACK_RIGHT)
+            img_back_left = cv.imread(data_path_CAM_BACK_LEFT)
 
-        # if (os.path.exists(data_path_CAM_FRONT)
-        #     and os.path.exists(data_path_CAM_FRONT_RIGHT)
-        #     and os.path.exists(data_path_CAM_FRONT_LEFT)
-        #     and os.path.exists(data_path_CAM_BACK)
-        #     and os.path.exists(data_path_CAM_BACK_RIGHT)
-        #     and os.path.exists(data_path_CAM_BACK_LEFT)):
+            if data["infos"][i]["map"]:
 
-        #     img_front = cv.imread(data_path_CAM_FRONT)
-        #     img_front_right = cv.imread(data_path_CAM_FRONT_RIGHT)
-        #     img_front_left = cv.imread(data_path_CAM_FRONT_LEFT)
-        #     img_back = cv.imread(data_path_CAM_BACK)
-        #     img_back_right = cv.imread(data_path_CAM_BACK_RIGHT)
-        #     img_back_left = cv.imread(data_path_CAM_BACK_LEFT)
+                R_front       = np.array(data["infos"][i]["cams"]["CAM_FRONT"]["ego2global_rotation"])
+                T_front       = np.array(data["infos"][i]["cams"]["CAM_FRONT"]["ego2global_translation"])
+                R_front_right = np.array(data["infos"][i]["cams"]["CAM_FRONT_RIGHT"]["ego2global_rotation"])
+                T_front_right = np.array(data["infos"][i]["cams"]["CAM_FRONT_RIGHT"]["ego2global_translation"])
+                R_front_left  = np.array(data["infos"][i]["cams"]["CAM_FRONT_LEFT"]["ego2global_rotation"])
+                T_front_left  = np.array(data["infos"][i]["cams"]["CAM_FRONT_LEFT"]["ego2global_translation"])
+                R_back        = np.array(data["infos"][i]["cams"]["CAM_BACK"]["ego2global_rotation"])
+                T_back        = np.array(data["infos"][i]["cams"]["CAM_BACK"]["ego2global_translation"])
+                R_back_right  = np.array(data["infos"][i]["cams"]["CAM_BACK_RIGHT"]["ego2global_rotation"])
+                T_back_right  = np.array(data["infos"][i]["cams"]["CAM_BACK_RIGHT"]["ego2global_translation"])
+                R_back_left   = np.array(data["infos"][i]["cams"]["CAM_BACK_LEFT"]["ego2global_rotation"])
+                T_back_left   = np.array(data["infos"][i]["cams"]["CAM_BACK_LEFT"]["ego2global_translation"])
 
-        #     if data["infos"][i]["map"]:
+                extrinsics_front       = getextrinsics(R_front, T_front)
+                extrinsics_front_right = getextrinsics(R_front_right, T_front_right)
+                extrinsics_front_left  = getextrinsics(R_front_left, T_front_left)
+                extrinsics_back        = getextrinsics(R_back, T_back)
+                extrinsics_back_right  = getextrinsics(R_back_right, T_back_right)
+                extrinsics_back_left   = getextrinsics(R_back_left, T_back_left)
 
-        #         R_front       = np.array(data["infos"][i]["cams"]["CAM_FRONT"]["lidar2sensor_rotation"])
-        #         T_front       = np.array(data["infos"][i]["cams"]["CAM_FRONT"]["lidar2sensor_translation"])
-        #         R_front_right = np.array(data["infos"][i]["cams"]["CAM_FRONT_RIGHT"]["lidar2sensor_rotation"])
-        #         T_front_right = np.array(data["infos"][i]["cams"]["CAM_FRONT_RIGHT"]["lidar2sensor_translation"])
-        #         R_front_left  = np.array(data["infos"][i]["cams"]["CAM_FRONT_LEFT"]["lidar2sensor_rotation"])
-        #         T_front_left  = np.array(data["infos"][i]["cams"]["CAM_FRONT_LEFT"]["lidar2sensor_translation"])
-        #         R_back        = np.array(data["infos"][i]["cams"]["CAM_BACK"]["lidar2sensor_rotation"])
-        #         T_back        = np.array(data["infos"][i]["cams"]["CAM_BACK"]["lidar2sensor_translation"])
-        #         R_back_right  = np.array(data["infos"][i]["cams"]["CAM_BACK_RIGHT"]["lidar2sensor_rotation"])
-        #         T_back_right  = np.array(data["infos"][i]["cams"]["CAM_BACK_RIGHT"]["lidar2sensor_translation"])
-        #         R_back_left   = np.array(data["infos"][i]["cams"]["CAM_BACK_LEFT"]["lidar2sensor_rotation"])
-        #         T_back_left   = np.array(data["infos"][i]["cams"]["CAM_BACK_LEFT"]["lidar2sensor_translation"])
+                intrinsics_front       = data["infos"][i]["cams"]["CAM_FRONT"]['cam_intrinsic']
+                # import pdb; pdb.set_trace()
 
-        #         extrinsics_front       = getextrinsics(R_front, T_front)
-        #         extrinsics_front_right = getextrinsics(R_front_right, T_front_right)
-        #         extrinsics_front_left  = getextrinsics(R_front_left, T_front_left)
-        #         extrinsics_back        = getextrinsics(R_back, T_back)
-        #         extrinsics_back_right  = getextrinsics(R_back_right, T_back_right)
-        #         extrinsics_back_left   = getextrinsics(R_back_left, T_back_left)
-
-        #         intrinsics_front       = data["infos"][i]["cams"]["CAM_FRONT"]['cam_intrinsic']
-        #         # import pdb; pdb.set_trace()
-
-        #         intrinsics_front_right = data["infos"][i]["cams"]["CAM_FRONT_RIGHT"]['cam_intrinsic']
-        #         intrinsics_front_left  = data["infos"][i]["cams"]["CAM_FRONT_LEFT"]['cam_intrinsic']
-        #         intrinsics_back        = data["infos"][i]["cams"]["CAM_BACK"]['cam_intrinsic']
-        #         intrinsics_back_right  = data["infos"][i]["cams"]["CAM_BACK_RIGHT"]['cam_intrinsic']
-        #         intrinsics_back_left   = data["infos"][i]["cams"]["CAM_BACK_LEFT"]['cam_intrinsic']
+                intrinsics_front_right = data["infos"][i]["cams"]["CAM_FRONT_RIGHT"]['cam_intrinsic']
+                intrinsics_front_left  = data["infos"][i]["cams"]["CAM_FRONT_LEFT"]['cam_intrinsic']
+                intrinsics_back        = data["infos"][i]["cams"]["CAM_BACK"]['cam_intrinsic']
+                intrinsics_back_right  = data["infos"][i]["cams"]["CAM_BACK_RIGHT"]['cam_intrinsic']
+                intrinsics_back_left   = data["infos"][i]["cams"]["CAM_BACK_LEFT"]['cam_intrinsic']
             
-        #         img_front = drawframes(data,i,img_front, extrinsics_front, intrinsics_front)
-        #         img_front_right = drawframes(data,i,img_front_right, extrinsics_front_right, intrinsics_front_right)               
-        #         img_front_left = drawframes(data,i,img_front_left, extrinsics_front_left, intrinsics_front_left)      
-        #         img_back = drawframes(data,i,img_back, extrinsics_back, intrinsics_back)           
-        #         img_back_right = drawframes(data,i,img_back_right, extrinsics_back_right, intrinsics_back_right)            
-        #         img_back_left = drawframes(data,i,img_back_left, extrinsics_back_left, intrinsics_back_left)
-                
-        #     save_name_front = data_path_CAM_FRONT.replace(samplepath.split("/")[-1],tempdir.split("/")[-1])
-        #     cv.imwrite(save_name_front,img_front)
-        #     save_name_front_right = data_path_CAM_FRONT_RIGHT.replace(samplepath.split("/")[-1],tempdir.split("/")[-1])
-        #     cv.imwrite(save_name_front_right,img_front_right)
-        #     save_name_front_left = data_path_CAM_FRONT_LEFT.replace(samplepath.split("/")[-1],tempdir.split("/")[-1])
-        #     cv.imwrite(save_name_front_left,img_front_left)
-        #     save_name_back = data_path_CAM_BACK.replace(samplepath.split("/")[-1],tempdir.split("/")[-1])
-        #     cv.imwrite(save_name_back,img_back)
-        #     save_name_back_right = data_path_CAM_BACK_RIGHT.replace(samplepath.split("/")[-1],tempdir.split("/")[-1])
-        #     cv.imwrite(save_name_back_right,img_back_right)
-        #     save_name_back_left = data_path_CAM_BACK_LEFT.replace(samplepath.split("/")[-1],tempdir.split("/")[-1])
-        #     cv.imwrite(save_name_back_left,img_back_left)
+                img_front = drawframes(data,i,img_front, extrinsics_front, intrinsics_front)
+                img_front_right = drawframes(data,i,img_front_right, extrinsics_front_right, intrinsics_front_right)               
+                img_front_left = drawframes(data,i,img_front_left, extrinsics_front_left, intrinsics_front_left)      
+                img_back = drawframes(data,i,img_back, extrinsics_back, intrinsics_back)           
+                img_back_right = drawframes(data,i,img_back_right, extrinsics_back_right, intrinsics_back_right)            
+                img_back_left = drawframes(data,i,img_back_left, extrinsics_back_left, intrinsics_back_left)
+
+            save_name_front = data_path_CAM_FRONT.replace("imgs","temp")
+            cv.imwrite(save_name_front,img_front)
+            save_name_front_right = data_path_CAM_FRONT_RIGHT.replace("imgs","temp")
+            cv.imwrite(save_name_front_right,img_front_right)
+            save_name_front_left = data_path_CAM_FRONT_LEFT.replace("imgs","temp")
+            cv.imwrite(save_name_front_left,img_front_left)
+            save_name_back = data_path_CAM_BACK.replace("imgs","temp")
+            cv.imwrite(save_name_back,img_back)
+            save_name_back_right = data_path_CAM_BACK_RIGHT.replace("imgs","temp")
+            cv.imwrite(save_name_back_right,img_back_right)
+            save_name_back_left = data_path_CAM_BACK_LEFT.replace("imgs","temp")
+            cv.imwrite(save_name_back_left,img_back_left)
 
 
-        img_bev = plotagent(data, i)
-        save_name_bev = os.path.join(bevdir, f"{i}.png")
-        cv.imwrite(save_name_bev,img_bev)
+            img_bev = plotagent(data, i)
+            save_name_bev = os.path.join(bevdir, f"{timestamp}.jpg")
+            cv.imwrite(save_name_bev,img_bev)
 
-    # write2mp4(tempdir, bevdir, viewdir, videodirtosave)
+    write2mp4(tempdir, bevdir, viewdir, videodirtosave)
     
 
 
