@@ -444,11 +444,20 @@ def work(tar_file, map_dict, save_root):
     # print("Saved to ", os.path.join(save_root, tar_file_name, tar_file_name + ".json"))
 
 def prepare_maps(map_root):
-    map_file_list = glob(os.path.join(map_root, "*_HD_map.npz"))
-    map_dict = {}
-    for map_file in tqdm(map_file_list, desc="Preparing map(s)"):
-        map_name = os.path.basename(map_file).split("_")[0]
-        map_dict[map_name] = dict(np.load(map_file, allow_pickle=True)["arr"])
+    if os.path.exists(os.path.join(map_root, "map_cache.pkl")):
+        print("Loading cached map: ", os.path.join(map_root, "map_cache.pkl"))
+        with open(os.path.join(map_root, "map_cache.pkl"), "rb") as f:
+            map_dict = pickle.load(f)
+    else:
+        map_file_list = glob(os.path.join(map_root, "*_HD_map.npz"))
+        map_dict = {}
+        for map_file in tqdm(map_file_list, desc="Preparing map(s)"):
+            map_name = os.path.basename(map_file).split("_")[0]
+            map_dict[map_name] = dict(np.load(map_file, allow_pickle=True)["arr"])
+        
+        with open(os.path.join(map_root, "map_cache.pkl"), "wb") as f:
+            pickle.dump(map_dict, f)
+        print("Saved to ", os.path.join(map_root, "map_cache.pkl"))
     return map_dict
 
 def single_process(file_list: list):
