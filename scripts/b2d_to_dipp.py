@@ -18,6 +18,7 @@ from pprint import pprint
 TSTEP = 100 # ms
 
 DATA_ROOT = "../data/Bench2Drive-mini"
+MAP_ROOT = os.path.join(DATA_ROOT, "maps")
 SAVE_ROOT = "../data/Bench2Drive-DIPP"
 NUM_WORKER = 1
 
@@ -47,27 +48,22 @@ def utm_to_bev(
 
     is_heading_provided = len(pt_utm_array[0]) > 2
 
-    pt_bev_array = []
-    for i in range(len(pt_utm_array)):
-        pt_utm_x = pt_utm_array[i][0]
-        pt_utm_y = pt_utm_array[i][1]
+    rot_mat = np.array([
+        [np.cos(ego_heading_utm), - np.sin(ego_heading_utm)],
+        [np.sin(ego_heading_utm), np.cos(ego_heading_utm)]
+    ])
+    trans_mat = np.array([[ego_x_utm, ego_y_utm]]) \
+                    .repeat(len(pt_utm_array), axis=0)
 
-        pt_x_shifted = pt_utm_x - ego_x_utm
-        pt_y_shifted = pt_utm_y - ego_y_utm
-
-        pt_x_rotated = pt_x_shifted * np.cos(ego_heading_utm) \
-                        + pt_y_shifted * np.sin(ego_heading_utm)
-        pt_y_rotated = - pt_x_shifted * np.sin(ego_heading_utm) \
-                        + pt_y_shifted * np.cos(ego_heading_utm)
+    pt_bev_position = np.dot(
+        (pt_utm_array[:, :2] - trans_mat), rot_mat)
         
-        if is_heading_provided:
-            pt_utm_heading = pt_utm_array[i][2]
-            pt_heading_rotated = pt_utm_heading - ego_heading_utm
-            pt_bev_array.append([pt_x_rotated, pt_y_rotated, pt_heading_rotated])
-        else:
-            pt_bev_array.append([pt_x_rotated, pt_y_rotated])
-
-    pt_bev_array = np.asarray(pt_bev_array)
+    if is_heading_provided:
+        pt_bev_heading = pt_utm_array[:, 2] - ego_heading_utm
+        pt_bev_array = np.concatenate(
+            (pt_bev_position, np.expand_dims(pt_bev_heading, axis=-1)), axis=-1)
+    else:
+        pt_bev_array = pt_bev_position
     
     if is_single_pt:
         return pt_bev_array[0]
@@ -286,7 +282,7 @@ def extract_maps(anno, map_dict):
                     "left_neighbour_id": line["Left"][1],
                     "right_neighbour_id": line["Right"][1]
                 }
-                result_map_dict["reference_lines"].append(deepcopy(reference_line))
+                result_map_dict["reference_lines"].append(reference_line)
             else:
                 converted_type = LANE_TYPE_MAPPING.get((line["Type"], line["Color"]), 1)
                 lane_line = {
@@ -299,7 +295,7 @@ def extract_maps(anno, map_dict):
                         "ego": points_local.tolist()
                     }
                 }
-                result_map_dict["lane_lines"].append(deepcopy(lane_line))
+                result_map_dict["lane_lines"].append(lane_line)
 
     return result_map_dict
 
@@ -324,7 +320,7 @@ def extract_cams(anno, timestamp, idx_anno, source_root, save_root):
             save_root, "imgs", cam_type)
         if not(os.path.exists(save_dir)):
             os.makedirs(save_dir, exist_ok=True)
-        save_file = os.path.join(save_dir, timestamp + ".jpg")
+        save_file = os.path.join(save_dir, str(idx_anno) + ".jpg")
 
         shutil.copyfile(source_file, save_file)
         relative_path = "/".join(save_file.split("/")[3:])
@@ -386,7 +382,7 @@ def extract_navi(anno):
     }
     return navi
 
-def extract_from_one_tar_file(tar_file: str, save_root: str):
+def extract_from_one_tar_file(tar_file: str, map_dict: dict, save_root: str):
     info_list = []
     
     # Read clip metadata
@@ -404,7 +400,7 @@ def extract_from_one_tar_file(tar_file: str, save_root: str):
     anno_file_list = glob(os.path.join(folder, scene, "anno", "*.json.gz"))
     anno_file_list.sort()
     start_timestamp = time.time() * 1e3
-    for idx_anno, anno_file in enumerate(tqdm(anno_file_list)):
+    for idx_anno, anno_file in enumerate(tqdm(anno_file_list, desc="Frames")):
     # for idx_anno, anno_file in enumerate(tqdm(anno_file_list[35:45])):
         with gzip.open(anno_file, 'rb') as f:
             anno = json.load(f)
@@ -412,27 +408,22 @@ def extract_from_one_tar_file(tar_file: str, save_root: str):
         frame = get_default_frame(start_timestamp, idx_anno, len(anno_file_list))
         frame["can_bus"] = extract_can_bus(anno)
         frame["agents"] = extract_agents(anno)
-        
-        map_file = os.path.join(folder, "maps", f"{map_name}_HD_map.npz")
-        map = dict(np.load(map_file, allow_pickle=True)["arr"])
-        frame["map"] = extract_maps(anno, map)
-
+        frame["map"] = extract_maps(anno, map_dict[map_name])
         frame["cams"] = extract_cams(anno, frame["timestamp"], idx_anno,
             source_root=os.path.join(folder, scene),
             save_root=os.path.join(save_root, scene))
-
         frame["navi"] = extract_navi(anno)
 
         # pprint(frame)
-        info_list.append(deepcopy(frame))
+        info_list.append(frame)
     return info_list
 
-def work(tar_file, save_root):
+def work(tar_file, map_dict, save_root):
     tar_file_name = os.path.basename(tar_file).split(".")[0]
     if not(os.path.exists(os.path.join(save_root, tar_file_name))):
         os.makedirs(os.path.join(save_root, tar_file_name), exist_ok=True)
     
-    info_list = extract_from_one_tar_file(tar_file, save_root)
+    info_list = extract_from_one_tar_file(tar_file, map_dict, save_root)
     
     scene = {
         "metadata": {
@@ -440,29 +431,40 @@ def work(tar_file, save_root):
             "scene_id": str(hash(tar_file_name)),
             "desc": os.path.basename(tar_file).split(".")[0]
         },
-        "infos": deepcopy(info_list)
+        "infos": info_list
     }
     
     # save pickle
     with open(os.path.join(save_root, tar_file_name, tar_file_name + ".pkl"), "wb") as f:
         pickle.dump(scene, f)
     print("Saved to ", os.path.join(save_root, tar_file_name, tar_file_name + ".pkl"))
-    # save json
-    with open(os.path.join(save_root, tar_file_name, tar_file_name + ".json"), "w", encoding="utf-8") as f:
-        json.dump(scene, f, ensure_ascii=False, indent=4)
-    print("Saved to ", os.path.join(save_root, tar_file_name, tar_file_name + ".json"))
+    # # save json
+    # with open(os.path.join(save_root, tar_file_name, tar_file_name + ".json"), "w", encoding="utf-8") as f:
+    #     json.dump(scene, f, ensure_ascii=False, indent=4)
+    # print("Saved to ", os.path.join(save_root, tar_file_name, tar_file_name + ".json"))
+
+def prepare_maps(map_root):
+    map_file_list = glob(os.path.join(map_root, "*_HD_map.npz"))
+    map_dict = {}
+    for map_file in tqdm(map_file_list, desc="Preparing map(s)"):
+        map_name = os.path.basename(map_file).split("_")[0]
+        map_dict[map_name] = dict(np.load(map_file, allow_pickle=True)["arr"])
+    return map_dict
 
 def single_process(file_list: list):
-    for file in tqdm(file_list, desc='Extracting tar(s)'):
-            work(file, SAVE_ROOT)
+    map_dict = prepare_maps(MAP_ROOT)
+    for file in tqdm(file_list, desc='Tar(s)'):
+            work(file, map_dict, SAVE_ROOT)
 
 def multi_process(file_list: list):
-    pbar = tqdm(total=len(file_list), desc='Extracting tar(s)')
+    map_dict = prepare_maps(MAP_ROOT)
+
+    pbar = tqdm(total=len(file_list), desc='Tar(s)')
     pbar_update = lambda *args: pbar.update(1)
 
     pool = Pool(NUM_WORKER)
     for file in file_list:
-        pool.apply_async(work, (file, SAVE_ROOT), callback=pbar_update)
+        pool.apply_async(work, (file, map_dict, SAVE_ROOT), callback=pbar_update)
     pool.close()
     pool.join()
 

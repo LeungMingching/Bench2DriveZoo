@@ -7,6 +7,7 @@
 
 import os
 import json
+import pickle
 import copy
 import numpy as np
 import cv2 as cv
@@ -26,6 +27,13 @@ def readJson(jsonName):
     """
     with open(jsonName, "r") as f0:
         data = json.load(f0)
+    return data
+
+def readPickle(pickleName):
+    """
+    """
+    with open(pickleName, "rb") as f:
+        data = pickle.load(f)
     return data
 
 def writeJsonToFile(path, jsonData):
@@ -204,12 +212,12 @@ def write2mp4(imagefolder,bevname, viewname, video_name):
 
     for image in tqdm(images):
         timestamp = image.split("_")[-1]
-        img_front_right_name  = os.path.join(imagefolder,front_right + "/" + timestamp)
-        img_front_left_name   = os.path.join(imagefolder,front_left + "/" + timestamp)
-        img_back_name         = os.path.join(imagefolder,back + "/" + timestamp)
-        img_back_right_name   = os.path.join(imagefolder,back_right + "/" + timestamp)
-        img_back_left_name    = os.path.join(imagefolder,back_left + "/" + timestamp)
-        img_bev = os.path.join(bevname,timestamp)
+        img_front_right_name  = os.path.join(imagefolder,front_right + "/" + image)
+        img_front_left_name   = os.path.join(imagefolder,front_left + "/" + image)
+        img_back_name         = os.path.join(imagefolder,back + "/" + image)
+        img_back_right_name   = os.path.join(imagefolder,back_right + "/" + image)
+        img_back_left_name    = os.path.join(imagefolder,back_left + "/" + image)
+        img_bev = os.path.join(bevname,image)
         # print("img_front_right_name==>",img_front_right_name)
         # print("img_bev==>",img_bev)
 
@@ -250,7 +258,7 @@ def write2mp4(imagefolder,bevname, viewname, video_name):
             img_res = np.concatenate((img_res, img_bev), axis=1)
             
 
-            save_name = os.path.join(viewname,timestamp)
+            save_name = os.path.join(viewname,image)
             cv.imwrite(save_name,img_res)
             video.write(img_res)
     video.release()
@@ -468,6 +476,7 @@ def main():
 
     ########################################################################################
     jsonpath = f"../data/Bench2Drive-DIPP/{file}/{file}.json"
+    pickepath = f"../data/Bench2Drive-DIPP/{file}/{file}.pkl"
     imagepath = f"../data/Bench2Drive-DIPP/{file}/imgs"
     samplepath = f"../data/Bench2Drive-DIPP/{file}/sample"
     tempdir = f"../data/Bench2Drive-DIPP/{file}/temp"
@@ -481,7 +490,8 @@ def main():
     # mkdir
     mkdir(imagepath,samplepath,tempdir,viewdir,bevdir)
     ########################################################################################
-    data = readJson(jsonpath)
+    # data = readJson(jsonpath)
+    data = readPickle(pickepath)
 
     # if sampleFlag:
     #     sample(data, samplepath, percent)
@@ -568,7 +578,7 @@ def main():
 
 
             img_bev = plotagent(data, i)
-            save_name_bev = os.path.join(bevdir, f"{timestamp}.jpg")
+            save_name_bev = os.path.join(bevdir, f"{i}.jpg")
             cv.imwrite(save_name_bev,img_bev)
 
     write2mp4(tempdir, bevdir, viewdir, videodirtosave)
