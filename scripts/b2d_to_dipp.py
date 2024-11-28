@@ -19,8 +19,8 @@ TSTEP = 100 # ms
 
 DATA_ROOT = "../data/Bench2Drive-mini"
 MAP_ROOT = os.path.join(DATA_ROOT, "maps")
-SAVE_ROOT = "../data/Bench2Drive-DIPP"
-NUM_WORKER = 1
+SAVE_ROOT = "../data/Bench2Drive-PnC"
+NUM_WORKER = 6
 
 
 def utm_to_bev(
@@ -382,7 +382,7 @@ def extract_navi(anno):
     }
     return navi
 
-def extract_from_one_tar_file(tar_file: str, map_dict: dict, save_root: str):
+def extract_from_one_tar_file(tar_file: str, save_root: str):
     info_list = []
     
     # Read clip metadata
@@ -395,6 +395,11 @@ def extract_from_one_tar_file(tar_file: str, map_dict: dict, save_root: str):
         print(f"Extracting {tar_file}...")
         with tarfile.open(tar_file) as f:
             f.extractall(folder)
+    
+    # Prepare map
+    map_dict = dict(np.load(
+        os.path.join(MAP_ROOT, f"{map_name}_HD_map.npz"),
+        allow_pickle=True)["arr"])
 
     # Anno
     anno_file_list = glob(os.path.join(folder, scene, "anno", "*.json.gz"))
@@ -408,7 +413,7 @@ def extract_from_one_tar_file(tar_file: str, map_dict: dict, save_root: str):
         frame = get_default_frame(start_timestamp, idx_anno, len(anno_file_list))
         frame["can_bus"] = extract_can_bus(anno)
         frame["agents"] = extract_agents(anno)
-        frame["map"] = extract_maps(anno, map_dict[map_name])
+        frame["map"] = extract_maps(anno, map_dict)
         frame["cams"] = extract_cams(anno, frame["timestamp"], idx_anno,
             source_root=os.path.join(folder, scene),
             save_root=os.path.join(save_root, scene))
@@ -418,12 +423,12 @@ def extract_from_one_tar_file(tar_file: str, map_dict: dict, save_root: str):
         info_list.append(frame)
     return info_list
 
-def work(tar_file, map_dict, save_root):
+def work(tar_file, save_root):
     tar_file_name = os.path.basename(tar_file).split(".")[0]
     if not(os.path.exists(os.path.join(save_root, tar_file_name))):
         os.makedirs(os.path.join(save_root, tar_file_name), exist_ok=True)
     
-    info_list = extract_from_one_tar_file(tar_file, map_dict, save_root)
+    info_list = extract_from_one_tar_file(tar_file, save_root)
     
     scene = {
         "metadata": {
@@ -461,19 +466,16 @@ def prepare_maps(map_root):
     return map_dict
 
 def single_process(file_list: list):
-    map_dict = prepare_maps(MAP_ROOT)
     for file in tqdm(file_list, desc='Tar(s)'):
-            work(file, map_dict, SAVE_ROOT)
+            work(file, SAVE_ROOT)
 
 def multi_process(file_list: list):
-    map_dict = prepare_maps(MAP_ROOT)
-
     pbar = tqdm(total=len(file_list), desc='Tar(s)')
     pbar_update = lambda *args: pbar.update(1)
 
     pool = Pool(NUM_WORKER)
     for file in file_list:
-        pool.apply_async(work, (file, map_dict, SAVE_ROOT), callback=pbar_update)
+        pool.apply_async(work, (file, SAVE_ROOT), callback=pbar_update)
     pool.close()
     pool.join()
 
