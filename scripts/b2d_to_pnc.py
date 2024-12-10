@@ -7,20 +7,19 @@ import json
 import shutil
 import numpy as np
 
-from copy import deepcopy
 from multiprocessing import Pool
 from glob import glob
 from tqdm import tqdm
+from collections import deque
 from scipy.spatial.transform import Rotation as R
 
-from pprint import pprint
 
 TSTEP = 100 # ms
 
-DATA_ROOT = "../data/Bench2Drive-mini"
-MAP_ROOT = os.path.join(DATA_ROOT, "maps")
-SAVE_ROOT = "../data/Bench2Drive-PnC"
-NUM_WORKER = 6
+DATA_ROOT = "/mnt/extra_hdd/data/Bench2Drive/mini"
+MAP_ROOT = "/mnt/extra_hdd/data/Bench2Drive/maps"
+SAVE_ROOT = "/mnt/extra_hdd/data/Bench2Drive-PnC/mini"
+NUM_WORKER = 1
 
 
 def utm_to_bev(
@@ -100,11 +99,11 @@ def extract_can_bus(anno):
     ego_box = find_ego_box(anno["bounding_boxes"])
 
     position = ego_box["location"]
-    rot_matrix = R.from_euler("xyz", ego_box["rotation"], degrees=True)
-    quat = rot_matrix.as_quat()[[3, 0, 1, 2]].tolist()
+    rotation = R.from_euler("xyz", ego_box["rotation"], degrees=True)
+    quat = rotation.as_quat()[[3, 0, 1, 2]].tolist()
     acceleration = anno["acceleration"]
     angular_velocity = anno["angular_velocity"]
-    velocity = (anno["speed"] * rot_matrix.apply(np.array([1, 0, 0]))).tolist()
+    velocity = (anno["speed"] * rotation.apply(np.array([1, 0, 0]))).tolist()
     heading_rad = np.deg2rad(ego_box["rotation"][-1])
     heading_deg = ego_box["rotation"][-1]
 
@@ -115,7 +114,10 @@ def extract_can_bus(anno):
                 + velocity \
                 + [heading_rad, heading_deg]
 
-    return can_bus
+    ego2global_translation = position
+    ego2global_rotation = rotation.as_matrix().tolist()
+
+    return can_bus, (ego2global_translation, ego2global_rotation)
 
 def extract_agents(anno, MAX_DISTANCE=100, FILTER_Z_SHRESHOLD=10):
     ego_box = find_ego_box(anno["bounding_boxes"])
@@ -125,7 +127,7 @@ def extract_agents(anno, MAX_DISTANCE=100, FILTER_Z_SHRESHOLD=10):
 
     agents = {}
     for npc in anno['bounding_boxes']:
-        if npc['class'] in ['ego_vehicle', "traffic_sign"]:
+        if npc['class'] in ['ego_vehicle']:
             continue
         if npc['distance'] > MAX_DISTANCE:
             continue
@@ -155,16 +157,16 @@ def extract_agents(anno, MAX_DISTANCE=100, FILTER_Z_SHRESHOLD=10):
         # type
         CLASS_TO_TYPE = {
             "vehicle": 1,
+            "walker": 8,
             "traffic_light": 14,
-            "walker": 8
+            "traffic_sign": 10 # 水马等障碍物
         }
         type = CLASS_TO_TYPE[npc["class"]]
 
-        # is_movable
+        # is_movable (default: False)
+        is_movable = False
         if npc["class"] == "vehicle":
             is_movable = npc["state"] == "dynamic"
-        if npc["class"] == "traffic_light":
-            is_movable = False
         if npc["class"] == "walker":
             is_movable = True
         
@@ -200,7 +202,7 @@ def extract_agents(anno, MAX_DISTANCE=100, FILTER_Z_SHRESHOLD=10):
             "type": type,
             "is_movable": is_movable,
             "dimension": {
-                "corner_points": corner_points, # empty, calculate if needed
+                "corner_points": corner_points,
                 "width": width,
                 "height": height,
                 "length": length
@@ -209,25 +211,57 @@ def extract_agents(anno, MAX_DISTANCE=100, FILTER_Z_SHRESHOLD=10):
 
     return agents
 
-def find_lanes_of_interest(map, ego_road_id, ego_lane_id):
-    lanes_of_interest = [(ego_road_id, ego_lane_id)]
+def find_n_level_lanes(map, road_id, lane_id, max_level, allow_junction=False):
+    queue = deque([(road_id, lane_id, 0)]) # level 0
+    visited = set()
+    lane_list = []
 
-    for line in map[ego_road_id][ego_lane_id]:
-        if line["Type"] == "Center":
-            left_lane = line["Left"]
-            right_lane = line["Right"]
+    while queue:
+        ptr_road_id, ptr_lane_id, level = queue.popleft()
+
+        # reach max_level
+        if level > max_level:
+            break
+
+        # visited
+        if (ptr_road_id, ptr_lane_id) in visited:
+            continue
+        visited.add((ptr_road_id, ptr_lane_id))
+
+        # get line
+        reference_line = None
+        for line in map[ptr_road_id][ptr_lane_id]:
+            if line["Type"] == "Center":
+                reference_line = line
+        if not reference_line:
+            continue
+
+        if not allow_junction and reference_line["TopologyType"] == "Junction":
+            for next_road_id, next_lane_id in reference_line["Topology"]:
+                if (next_road_id, next_lane_id) not in visited:
+                    queue.append((next_road_id, next_lane_id, level))
+        else:
+            lane_list.append((ptr_road_id, ptr_lane_id))
+
+            # Left, Right Lanes
+            left_lane = reference_line["Left"]
+            right_lane = reference_line["Right"]
             if (left_lane) \
-                and (left_lane not in lanes_of_interest) \
-                and (left_lane[1] in map[ego_road_id].keys()):
-                lanes_of_interest.append(left_lane)
+                and (left_lane not in lane_list) \
+                and (left_lane[1] in map[road_id].keys()):
+                lane_list.append(left_lane)
             if (right_lane) \
-                and (right_lane not in lanes_of_interest) \
-                and (right_lane[1] in map[ego_road_id].keys()):
-                lanes_of_interest.append(right_lane)
+                and (right_lane not in lane_list) \
+                and (right_lane[1] in map[road_id].keys()):
+                lane_list.append(right_lane)
 
-    return lanes_of_interest
+            for next_road_id, next_lane_id in reference_line["Topology"]:
+                if (next_road_id, next_lane_id) not in visited:
+                    queue.append((next_road_id, next_lane_id, level + 1))
 
-def extract_maps(anno, map_dict):
+    return lane_list
+
+def extract_maps(anno, map_dict, max_num_points=200):
     LANE_TYPE_MAPPING = {
         ("White", "Broken"): 1,
         ("White", "Solid"): 2,
@@ -248,8 +282,8 @@ def extract_maps(anno, map_dict):
     ego_box = find_ego_box(anno["bounding_boxes"])
 
     # determin which lane should be extracted
-    lanes_of_interest = find_lanes_of_interest(
-                            map_dict, ego_box["road_id"], ego_box["lane_id"])
+    lanes_of_interest = find_n_level_lanes(
+                            map_dict, ego_box["road_id"], ego_box["lane_id"], 1, allow_junction=False)
     
     # Traffic lights
     passable_type_mapping = {}
@@ -261,12 +295,37 @@ def extract_maps(anno, map_dict):
                 passable_type_mapping[(box["road_id"], box["lane_id"])] = int(np.uint8(0b11111111))
 
     # Reference lines or Lane lines
+    def create_ROI_mask(bev_points,
+        max_lon=300, min_lon=-100,
+        max_lat=80, min_lat=-80,
+        max_height=15, min_height=-15
+    ):
+        assert bev_points.shape[1] == 3, "Not 3D-Point"
+        upper = np.array([[max_lon, max_lat, max_height]]).repeat(len(bev_points), axis=0)
+        lower = np.array([[min_lon, min_lat, min_height]]).repeat(len(bev_points), axis=0)
+        return (bev_points <= upper) & (bev_points > lower)
+
     for road_id, lane_id in lanes_of_interest:
         for line in map_dict[road_id][lane_id]:
             points_global = np.array([[pt[0], pt[1], 0.0] for pt in np.array(line["Points"], dtype=object)[:, 0]])
             points_local = utm_to_bev(points_global[:, :2], 
                             ego_box["location"][0], ego_box["location"][1], np.deg2rad(ego_box["rotation"][-1]))
             points_local = np.concatenate((points_local, np.zeros((len(points_local), 1))), axis=-1)
+
+            # ROI masking
+            points_global = np.where(create_ROI_mask(points_local), points_global, np.nan)
+            points_global = points_global[~np.isnan(points_global).any(axis=1)]
+            points_local = np.where(create_ROI_mask(points_local), points_local, np.nan)
+            points_local = points_local[~np.isnan(points_local).any(axis=1)]
+            if len(points_local) < 6:
+                continue
+
+            # Downsampling
+            if len(points_local) > max_num_points:
+                n_step = int(len(points_local) / max_num_points)
+                points_local = points_local[::n_step, :]
+                points_global = points_global[::n_step, :]
+
             if line["Type"] == "Center":
                 reference_line = {
                     "id": lane_id,
@@ -323,7 +382,7 @@ def extract_cams(anno, timestamp, idx_anno, source_root, save_root):
         save_file = os.path.join(save_dir, str(idx_anno) + ".jpg")
 
         shutil.copyfile(source_file, save_file)
-        relative_path = "/".join(save_file.split("/")[3:])
+        relative_path = "/".join(save_file.split("/")[-4:])
 
         sensor2ego_homo_trfs = np.array(anno["sensors"][cam_type]["cam2ego"])
         sensor2ego_translation = sensor2ego_homo_trfs[:-1, -1].tolist()
@@ -411,7 +470,7 @@ def extract_from_one_tar_file(tar_file: str, save_root: str):
             anno = json.load(f)
 
         frame = get_default_frame(start_timestamp, idx_anno, len(anno_file_list))
-        frame["can_bus"] = extract_can_bus(anno)
+        frame["can_bus"], (frame["ego2global_translation"], frame["ego2global_rotation"]) = extract_can_bus(anno)
         frame["agents"] = extract_agents(anno)
         frame["map"] = extract_maps(anno, map_dict)
         frame["cams"] = extract_cams(anno, frame["timestamp"], idx_anno,
@@ -428,6 +487,9 @@ def work(tar_file, save_root):
     if not(os.path.exists(os.path.join(save_root, tar_file_name))):
         os.makedirs(os.path.join(save_root, tar_file_name), exist_ok=True)
     
+    # if os.path.exists(os.path.join(save_root, tar_file_name, tar_file_name + ".pkl")):
+    #     return
+
     info_list = extract_from_one_tar_file(tar_file, save_root)
     
     scene = {
@@ -483,6 +545,7 @@ def multi_process(file_list: list):
 if __name__ == "__main__":
 
     tar_file_list = glob(os.path.join(DATA_ROOT, "*.tar.gz"))
+    tar_file_list.sort()
     if NUM_WORKER > 1:
         multi_process(tar_file_list)
     else:
