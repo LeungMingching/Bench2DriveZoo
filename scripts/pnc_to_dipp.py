@@ -7,14 +7,12 @@ from glob import glob
 from multiprocessing import Pool
 from scipy.spatial.transform import Rotation as R
 
-from pprint import pprint
-
 
 TRAJECTORY_LENGTH = 6 # [s]
 
-DATA_ROOT = "../data/Bench2Drive-PnC"
-SAVE_ROOT = "../data/Bench2Drive-DIPP"
-NUM_WORKER = 4
+DATA_ROOT = "/mnt/extra_hdd/data/Bench2Drive-PnC/mini"
+SAVE_ROOT = "/mnt/extra_hdd/data/Bench2Drive-DIPP/mini"
+NUM_WORKER = 1
 
 def extract_frame_info(metadata):
     frames = []
@@ -24,7 +22,7 @@ def extract_frame_info(metadata):
 
     for info in tqdm(metadata['infos'], desc="Frame(s)"):
         frame = {
-            'timestamp': info.get('timestamp', -1),
+            'timestamp': float(info.get('timestamp', -1)),
             'navi':{
                 'command': info.get('navi', {}).get('command', -1),  # 如果没有'navi'键，则返回默认值 -1
                 'intersection_distance': info.get('navi', {}).get('intersection_distance', 0.0),
@@ -33,7 +31,7 @@ def extract_frame_info(metadata):
                 'ego_status': {
                     'position': info.get('can_bus', [0, 0])[:2],
                     'heading': info.get('can_bus', 0)[16],
-                    'velocity': info.get('can_bus', [0, 0])[13:15],
+                    'velocity': [np.linalg.norm(info.get('can_bus', [0, 0])[13:15]), 0],
                     'acceleration': info.get('can_bus', [0, 0])[7:9]
             },
             'agents': [],
@@ -165,8 +163,8 @@ def extract_all_labels(frame_list):
 
         label = {
             'timestamp': current_t,
-            'clip_no': -1,  # 未使用，设为 -1
-            'frame_idx': -1,  # 未使用，设为 -1
+            'clip_no': int(frame_list[0]["timestamp"]),
+            'frame_idx': idx_current,
             'ilqr_trajectory': None,
             'rule_based_trajectory': None,
             'real_trajectory': trajectory
@@ -178,13 +176,15 @@ def extract_all_labels(frame_list):
 def work(pkl_file):
     scene = os.path.basename(pkl_file).split(".")[0]
 
-    # Make dirs
     observation_folder = os.path.join(SAVE_ROOT, scene, "observation")
     if not(os.path.exists(observation_folder)):
         os.makedirs(observation_folder, exist_ok=True)
     label_folder = os.path.join(SAVE_ROOT, scene, "label")
     if not(os.path.exists(label_folder)):
         os.makedirs(label_folder, exist_ok=True)
+    
+    if glob(os.path.join(label_folder, "*label.npy")):
+        return
     
     # Convert
     with open(pkl_file, "rb") as f:
@@ -194,9 +194,9 @@ def work(pkl_file):
 
     # Save
     timestamp = frame_list[0]["timestamp"]
-    with open(os.path.join(observation_folder, f"{timestamp}_frames.npy"), "wb") as f:
+    with open(os.path.join(observation_folder, f"{int(timestamp)}_frames.npy"), "wb") as f:
         np.save(f, frame_list)
-    with open(os.path.join(label_folder, f"{timestamp}_label.npy"), "wb") as f:
+    with open(os.path.join(label_folder, f"{int(timestamp)}_label.npy"), "wb") as f:
         np.save(f, label_list)
 
 def single_process(file_list: list):
@@ -218,6 +218,7 @@ if __name__ == "__main__":
 
     pkl_file_list = glob(
         os.path.join(DATA_ROOT, "**/*.pkl"), recursive=True)
+    pkl_file_list.sort()
     if NUM_WORKER > 1:
         multi_process(pkl_file_list)
     else:

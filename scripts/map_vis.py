@@ -204,7 +204,7 @@ def write2mp4(imagefolder,bevname, viewname, video_name):
     images.sort()
     fourcc = cv.VideoWriter_fourcc(*'mp4v')
     fps=5.0
-    timeflag = images[0].split("_")[0]
+    # timeflag = images[0].split("_")[0]
     img = cv.imread(os.path.join(os.path.join(imagefolder,front), images[0]))
     height,width,layers = img.shape
     video = cv.VideoWriter(video_name, fourcc, fps,(int(3*(width/3))+int(2*(height/3)), int(2*(height/3))))
@@ -472,17 +472,18 @@ def main():
     """
     """
 
-    file = "ConstructionObstacle_Town05_Route68_Weather8"
+    data_root = "/mnt/extra_hdd/data/Bench2Drive-PnC/mini"
+    file = "BlockedIntersection_Town05_Route272_Weather12"
 
     ########################################################################################
-    jsonpath = f"../data/Bench2Drive-DIPP/{file}/{file}.json"
-    pickepath = f"../data/Bench2Drive-DIPP/{file}/{file}.pkl"
-    imagepath = f"../data/Bench2Drive-DIPP/{file}/imgs"
-    samplepath = f"../data/Bench2Drive-DIPP/{file}/sample"
-    tempdir = f"../data/Bench2Drive-DIPP/{file}/temp"
-    viewdir = f"../data/Bench2Drive-DIPP/{file}/res"
-    bevdir = f"../data/Bench2Drive-DIPP/{file}/bev"
-    videodirtosave = f"../data/Bench2Drive-DIPP/{file}/out.mp4"
+    jsonpath = f"{data_root}/{file}/{file}.json"
+    pickepath = f"{data_root}/{file}/{file}.pkl"
+    imagepath = f"{data_root}/{file}/imgs"
+    samplepath = f"{data_root}/{file}/sample"
+    tempdir = f"{data_root}/{file}/temp"
+    viewdir = f"{data_root}/{file}/res"
+    bevdir = f"{data_root}/{file}/bev"
+    videodirtosave = f"{data_root}/{file}/out.mp4"
     sampleFlag = False
     percent = 0.05
 
@@ -503,13 +504,13 @@ def main():
         timestamp = data["infos"][i]["timestamp"]
         agents = data["infos"][i]["agents"]
         mapinfo = data["infos"][i]["map"]
-
-        data_path_CAM_FRONT       = "../data/Bench2Drive-DIPP/"+("/".join(data["infos"][i]["cams"]["CAM_FRONT"]["data_path"].split("/")))
-        data_path_CAM_FRONT_RIGHT = "../data/Bench2Drive-DIPP/"+("/".join(data["infos"][i]["cams"]["CAM_FRONT_RIGHT"]["data_path"].split("/")))
-        data_path_CAM_FRONT_LEFT  = "../data/Bench2Drive-DIPP/"+("/".join(data["infos"][i]["cams"]["CAM_FRONT_LEFT"]["data_path"].split("/")))
-        data_path_CAM_BACK        = "../data/Bench2Drive-DIPP/"+("/".join(data["infos"][i]["cams"]["CAM_BACK"]["data_path"].split("/")))
-        data_path_CAM_BACK_RIGHT  = "../data/Bench2Drive-DIPP/"+("/".join(data["infos"][i]["cams"]["CAM_BACK_RIGHT"]["data_path"].split("/")))
-        data_path_CAM_BACK_LEFT   = "../data/Bench2Drive-DIPP/"+("/".join(data["infos"][i]["cams"]["CAM_BACK_LEFT"]["data_path"].split("/")))
+        
+        data_path_CAM_FRONT       = f"{data_root}/"+("/".join(data["infos"][i]["cams"]["CAM_FRONT"]["data_path"].split("/")))
+        data_path_CAM_FRONT_RIGHT = f"{data_root}/"+("/".join(data["infos"][i]["cams"]["CAM_FRONT_RIGHT"]["data_path"].split("/")))
+        data_path_CAM_FRONT_LEFT  = f"{data_root}/"+("/".join(data["infos"][i]["cams"]["CAM_FRONT_LEFT"]["data_path"].split("/")))
+        data_path_CAM_BACK        = f"{data_root}/"+("/".join(data["infos"][i]["cams"]["CAM_BACK"]["data_path"].split("/")))
+        data_path_CAM_BACK_RIGHT  = f"{data_root}/"+("/".join(data["infos"][i]["cams"]["CAM_BACK_RIGHT"]["data_path"].split("/")))
+        data_path_CAM_BACK_LEFT   = f"{data_root}/"+("/".join(data["infos"][i]["cams"]["CAM_BACK_LEFT"]["data_path"].split("/")))
         
         if (os.path.exists(data_path_CAM_FRONT)
             and os.path.exists(data_path_CAM_FRONT_RIGHT)
