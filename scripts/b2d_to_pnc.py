@@ -16,10 +16,16 @@ from scipy.spatial.transform import Rotation as R
 
 TSTEP = 100 # ms
 
-DATA_ROOT = "/mnt/extra_hdd/data/Bench2Drive/mini"
-MAP_ROOT = "/mnt/extra_hdd/data/Bench2Drive/maps"
-SAVE_ROOT = "/mnt/extra_hdd/data/Bench2Drive-PnC/mini"
+DATA_ROOT = "../../data/Bench2Drive"
+MAP_ROOT = os.path.join(DATA_ROOT, "maps")
+SAVE_ROOT = "../../data/Bench2Drive-PnC"
 NUM_WORKER = 1
+SKIP_LIST = [
+    
+]
+TEST_LIST = [
+    
+]
 
 
 def utm_to_bev(
@@ -306,6 +312,13 @@ def extract_maps(anno, map_dict, max_num_points=200):
         return (bev_points <= upper) & (bev_points > lower)
 
     for road_id, lane_id in lanes_of_interest:
+
+        # protect non-exist id
+        if road_id not in map_dict.keys():
+            continue
+        if lane_id not in map_dict[road_id].keys():
+            continue
+
         for line in map_dict[road_id][lane_id]:
             points_global = np.array([[pt[0], pt[1], 0.0] for pt in np.array(line["Points"], dtype=object)[:, 0]])
             points_local = utm_to_bev(points_global[:, :2], 
@@ -464,7 +477,7 @@ def extract_from_one_tar_file(tar_file: str, save_root: str):
     anno_file_list = glob(os.path.join(folder, scene, "anno", "*.json.gz"))
     anno_file_list.sort()
     start_timestamp = time.time() * 1e3
-    for idx_anno, anno_file in enumerate(tqdm(anno_file_list, desc="Frames")):
+    for idx_anno, anno_file in enumerate(tqdm(anno_file_list, desc=f"{scene}")):
     # for idx_anno, anno_file in enumerate(tqdm(anno_file_list[35:45])):
         with gzip.open(anno_file, 'rb') as f:
             anno = json.load(f)
@@ -484,31 +497,45 @@ def extract_from_one_tar_file(tar_file: str, save_root: str):
 
 def work(tar_file, save_root):
     tar_file_name = os.path.basename(tar_file).split(".")[0]
+
+    if tar_file_name in SKIP_LIST:
+        return
+
+    # if tar_file_name not in TEST_LIST:
+    #     return
+    
     if not(os.path.exists(os.path.join(save_root, tar_file_name))):
         os.makedirs(os.path.join(save_root, tar_file_name), exist_ok=True)
     
-    # if os.path.exists(os.path.join(save_root, tar_file_name, tar_file_name + ".pkl")):
-    #     return
+    if os.path.exists(os.path.join(save_root, tar_file_name, tar_file_name + ".pkl")):
+        # print(f"{tar_file_name} already exists. Skipping...")
+        return
 
-    info_list = extract_from_one_tar_file(tar_file, save_root)
-    
-    scene = {
-        "metadata": {
-            "version": "v0.0",
-            "scene_id": str(hash(tar_file_name)),
-            "desc": os.path.basename(tar_file).split(".")[0]
-        },
-        "infos": info_list
-    }
-    
-    # save pickle
-    with open(os.path.join(save_root, tar_file_name, tar_file_name + ".pkl"), "wb") as f:
-        pickle.dump(scene, f)
-    print("Saved to ", os.path.join(save_root, tar_file_name, tar_file_name + ".pkl"))
-    # # save json
-    # with open(os.path.join(save_root, tar_file_name, tar_file_name + ".json"), "w", encoding="utf-8") as f:
-    #     json.dump(scene, f, ensure_ascii=False, indent=4)
-    # print("Saved to ", os.path.join(save_root, tar_file_name, tar_file_name + ".json"))
+    try:
+        # print(f"Processing {tar_file_name}")
+        info_list = extract_from_one_tar_file(tar_file, save_root)
+        
+        scene = {
+            "metadata": {
+                "version": "v0.0",
+                "scene_id": str(hash(tar_file_name)),
+                "desc": os.path.basename(tar_file).split(".")[0]
+            },
+            "infos": info_list
+        }
+        
+        # save pickle
+        with open(os.path.join(save_root, tar_file_name, tar_file_name + ".pkl"), "wb") as f:
+            pickle.dump(scene, f)
+        # print("Saved to ", os.path.join(save_root, tar_file_name, tar_file_name + ".pkl"))
+        # # save json
+        # with open(os.path.join(save_root, tar_file_name, tar_file_name + ".json"), "w", encoding="utf-8") as f:
+        #     json.dump(scene, f, ensure_ascii=False, indent=4)
+        # print("Saved to ", os.path.join(save_root, tar_file_name, tar_file_name + ".json"))
+    except Exception as exc:
+        print(exc)
+        print("Failed to process ", tar_file_name)
+        return
 
 def prepare_maps(map_root):
     if os.path.exists(os.path.join(map_root, "map_cache.pkl")):

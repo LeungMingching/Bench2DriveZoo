@@ -10,8 +10,8 @@ from scipy.spatial.transform import Rotation as R
 
 TRAJECTORY_LENGTH = 6 # [s]
 
-DATA_ROOT = "/mnt/extra_hdd/data/Bench2Drive-PnC/mini"
-SAVE_ROOT = "/mnt/extra_hdd/data/Bench2Drive-DIPP/mini"
+DATA_ROOT = "../../data/Bench2Drive-PnC"
+SAVE_ROOT = "../../data/Bench2Drive-DIPP"
 NUM_WORKER = 1
 
 def extract_frame_info(metadata):
@@ -176,28 +176,36 @@ def extract_all_labels(frame_list):
 def work(pkl_file):
     scene = os.path.basename(pkl_file).split(".")[0]
 
-    observation_folder = os.path.join(SAVE_ROOT, scene, "observation")
-    if not(os.path.exists(observation_folder)):
-        os.makedirs(observation_folder, exist_ok=True)
-    label_folder = os.path.join(SAVE_ROOT, scene, "label")
-    if not(os.path.exists(label_folder)):
-        os.makedirs(label_folder, exist_ok=True)
-    
-    if glob(os.path.join(label_folder, "*label.npy")):
-        return
-    
-    # Convert
-    with open(pkl_file, "rb") as f:
-        metadata = pickle.load(f)
-    frame_list = extract_frame_info(metadata)
-    label_list = extract_all_labels(frame_list)
+    try:
+        observation_folder = os.path.join(SAVE_ROOT, scene, "observation")
+        if not(os.path.exists(observation_folder)):
+            os.makedirs(observation_folder, exist_ok=True)
+        label_folder = os.path.join(SAVE_ROOT, scene, "label")
+        if not(os.path.exists(label_folder)):
+            os.makedirs(label_folder, exist_ok=True)
+        
+        if glob(os.path.join(label_folder, "*label.npy")):
+            return
+        
+        # Convert
+        with open(pkl_file, "rb") as f:
+            metadata = pickle.load(f)
+        frame_list = extract_frame_info(metadata)
+        label_list = extract_all_labels(frame_list)
 
-    # Save
-    timestamp = frame_list[0]["timestamp"]
-    with open(os.path.join(observation_folder, f"{int(timestamp)}_frames.npy"), "wb") as f:
-        np.save(f, frame_list)
-    with open(os.path.join(label_folder, f"{int(timestamp)}_label.npy"), "wb") as f:
-        np.save(f, label_list)
+        if len(frame_list) < 1:
+            return
+
+        # Save
+        timestamp = frame_list[0]["timestamp"]
+        with open(os.path.join(observation_folder, f"{int(timestamp)}_frames.npy"), "wb") as f:
+            np.save(f, frame_list)
+        with open(os.path.join(label_folder, f"{int(timestamp)}_label.npy"), "wb") as f:
+            np.save(f, label_list)
+    except Exception as exc:
+        print(exc)
+        print(f"Failed to process {scene}")
+        return
 
 def single_process(file_list: list):
     for file in tqdm(file_list, desc='Pkl(s)'):
