@@ -114,7 +114,7 @@ def extract_all_labels(frame_list):
     for idx_current, frame in enumerate(frame_list):
 
         current_t = float(frame["timestamp"])
-        traj_end_t = current_t + TRAJECTORY_LENGTH * 1000
+        traj_end_t = current_t + TRAJECTORY_LENGTH
 
         ego_translation = np.array(frame['ego_status']['position'])
         ego_heading = frame['ego_status']['heading']
@@ -131,7 +131,7 @@ def extract_all_labels(frame_list):
             velocity_global = np.array(nxt_frame['ego_status']['velocity'])
             acceleration_global = np.array(nxt_frame['ego_status']['acceleration'])
             heading_global = nxt_frame['ego_status']['heading']
-            time = (float(nxt_frame['timestamp']) - current_t) / 1000.0
+            time = (float(nxt_frame['timestamp']) - current_t)
 
             relative_position = np.dot(ego_rotation, position_global[:2] - ego_translation[:2])
 
