@@ -22,7 +22,7 @@ def extract_frame_info(metadata):
 
     for info in tqdm(metadata['infos'], desc="Frame(s)"):
         frame = {
-            'timestamp': float(info.get('timestamp', -1)),
+            'timestamp': float(info.get('timestamp', -1)) * 1e-3,
             'navi':{
                 'command': info.get('navi', {}).get('command', -1),  # 如果没有'navi'键，则返回默认值 -1
                 'intersection_distance': info.get('navi', {}).get('intersection_distance', 0.0),
